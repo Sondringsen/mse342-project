@@ -1,0 +1,3 @@
+[submodule "CSDI"]
+	path = CSDI
+	url = https://github.com/ermongroup/CSDI
