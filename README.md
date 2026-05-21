@@ -24,12 +24,12 @@ The CSV uses decimal daily returns. By default it keeps value-weighted industry
 returns from `1990-01-01` onward and drops the catch-all `Other` portfolio,
 leaving 48 clean industry series.
 
-Run the CSDI forecasting entry point on this dataset from the CSDI directory:
+Run the fixed-split CSDI scenario experiment:
 
 ```bash
-cd CSDI
-../../venv/bin/python exe_forecasting.py --datatype french49_daily --device cpu --nsample 10
+bash CSDI_Experiment/scripts/run_fixed_split_cuda.sh
 ```
 
-The build script needs NumPy. The CSDI run also needs the packages in
-`CSDI/requirements.txt`, including PyTorch.
+The experiment trains on data up to `TRAIN_END_DATE` and generates scenario
+paths for the requested horizons. The build script needs NumPy. The CSDI run
+also needs the packages in `CSDI/requirements.txt`, including PyTorch.

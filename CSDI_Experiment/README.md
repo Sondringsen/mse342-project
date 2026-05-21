@@ -1,126 +1,156 @@
-# CSDI Walk-Forward Experiment
+# CSDI Fixed-Split Scenario Generation
 
-This folder contains a walk-forward pipeline for the CSDI forecasting model.
-Each fold:
+This experiment trains CSDI on returns up to a chosen cutoff date, then
+generates future scenario paths for selected horizons. This is the main project
+setup because the goal is financial path generation, not rolling point
+forecasting.
 
-1. fits feature-wise normalizers using only rows before the forecast origin,
-2. trains CSDI on expanding historical windows whose targets also end before the origin,
-3. predicts the next `pred-length` rows from the most recent `history-length` rows,
-4. writes fold-level and aggregate prediction/metric files.
+The default horizons are 1, 5, and 10 trading years:
 
-Run from `mse342-project`:
+- 1 year: 252 trading days
+- 5 years: 1260 trading days
+- 10 years: 2520 trading days
 
-```bash
-../venv/bin/pip3 install -r CSDI/requirements.txt
-```
+## Run
 
-```bash
-../venv/bin/python CSDI_Experiment/src/walk_forward_csdi.py \
-  --device cpu \
-  --epochs 5 \
-  --itr-per-epoch 50 \
-  --nsample 10 \
-  --n-folds 3
-```
-
-To run through PyTorch's MPS path on Apple Silicon:
+One-command full cluster run:
 
 ```bash
-bash CSDI_Experiment/scripts/run_walk_forward_mps.sh
+bash CSDI_Experiment/run_cluster.sh
 ```
 
-For the long-horizon business-cycle/path-generation experiment, use:
+This runs matched vanilla vs topology-loss CSDI for 1, 5, and 10-year scenarios
+using the default project settings. Override inline when needed:
 
 ```bash
-bash CSDI_Experiment/run.sh
+EPOCHS=10 NSAMPLE=10 HORIZON_YEARS="1" bash CSDI_Experiment/run_cluster.sh
 ```
 
-This defaults to conditioning on `756` trading days and generating/evaluating
-the next `252` trading days for a small sector subset. Override settings inline:
+The default experiment now trains in log-return space and reports simple returns
+for metrics and plots:
+
+- `RETURN_TRANSFORM=log`
+- `CONSTRAINT_LOSS_WEIGHT=0.02`
+- `CONSTRAINT_VOLATILITY_WEIGHT=0.25`
+- `CONSTRAINT_SAMPLE_CLAMP=1`
+- `CONSTRAINT_LOWER_QUANTILE=0.001`
+- `CONSTRAINT_UPPER_QUANTILE=0.999`
+- `CONSTRAINT_MARGIN_Z=0.5`
+
+This prevents impossible compounded paths from simple returns below `-100%` and
+keeps generated standardized log returns within empirical training bounds.
+
+To use multiple GPUs, set `GPUS`. This parallelizes across independent
+variant/horizon jobs, with one GPU per job:
 
 ```bash
-EPOCHS=50 NSAMPLE=50 N_FOLDS=5 \
-  TARGET_COLUMNS="Agric Food Oil Banks Softw Util" \
-  bash CSDI_Experiment/run.sh
+GPUS=4 bash CSDI_Experiment/run_cluster.sh
 ```
 
-The MPS runner defaults to `N_FOLDS=3`, `EPOCHS=50`, `ITR_PER_EPOCH=100`,
-and `NSAMPLE=50`. Override them as environment variables:
+This is cluster-level parallelism, not distributed training inside one model.
+For the default `HORIZON_YEARS="1 5 10"`, the script launches six one-GPU jobs:
+vanilla/topoloss for each horizon.
+
+Smoke test:
 
 ```bash
-N_FOLDS=0 EPOCHS=100 ITR_PER_EPOCH=200 NSAMPLE=100 \
-  bash CSDI_Experiment/scripts/run_walk_forward_mps.sh
+TRAIN_END_DATE=2015-12-31 \
+HORIZON_YEARS="1" \
+TARGET_COLUMNS="Agric Food Oil" \
+EPOCHS=2 ITR_PER_EPOCH=5 NSAMPLE=5 \
+bash CSDI_Experiment/scripts/run_fixed_split_cuda.sh
 ```
 
-Use `TARGET_COLUMNS="Agric Food Oil"` to train on a smaller subset. The runner
-requires MPS by default; set `REQUIRE_MPS=0` only if you want CPU fallback.
-
-To run folds across CUDA GPUs:
+Cluster run:
 
 ```bash
-bash CSDI_Experiment/scripts/run_cuda.sh
+TRAIN_END_DATE=2015-12-31 \
+HORIZON_YEARS="1 5 10" \
+TARGET_COLUMNS="Agric Food Oil Banks Softw Util" \
+EPOCHS=50 ITR_PER_EPOCH=100 NSAMPLE=50 \
+srun --partition=gpu-turing --gres=gpu:1 \
+bash CSDI_Experiment/scripts/run_fixed_split_cuda.sh
 ```
 
-By default, the CUDA runner uses every CUDA GPU visible to PyTorch, runs all
-available folds (`N_FOLDS=0`), combines worker outputs, and creates analysis
-plots. You can choose GPUs and shorten the run:
+The script writes to:
 
-```bash
-GPUS="0 1" N_FOLDS=12 EPOCHS=50 ITR_PER_EPOCH=100 NSAMPLE=50 \
-  bash CSDI_Experiment/scripts/run_cuda.sh
+```text
+CSDI_Experiment/outputs/fixed_split_vanilla_YYYYMMDD_HHMMSS
 ```
 
-Useful CUDA runner overrides:
+Each horizon gets its own model and artifacts:
 
-- `GPUS="0 1 2 3"`: CUDA device ids to use.
-- `OUTPUT_DIR=...`: destination run directory.
-- `RUN_ANALYSIS=0`: skip plot generation after training.
-- `COPY_FOLDS=0`: keep fold artifacts only in `workers/gpu_*` subdirectories.
-- `TARGET_COLUMNS="Agric Food Oil"`: train on a smaller feature subset.
+- `horizon_0252/model.pth`
+- `horizon_0252/train_history.csv`
+- `horizon_0252/generated_outputs_nsample50.pk`
+- `horizon_0252/predictions.csv`
+- `horizon_0252/metrics.json`
 
-The default input is `data/processed/french49_daily_returns.csv`, forecasting all
-non-date columns with `history-length=231` and `pred-length=21`.
+The run directory also contains combined `predictions.csv`,
+`metrics_by_horizon.csv`, `run_config.json`, and `summary.json`.
 
-Useful options:
+`predictions.csv` reports simple-return quantities in `actual`, `pred_median`,
+and quantile columns. When `RETURN_TRANSFORM=log`, the model-space values are
+also saved as `actual_model`, `pred_median_model`, and matching model quantiles.
 
-- `--initial-train-size`: first forecast origin as an exclusive row index.
-- `--step-size`: rows to advance between origins; defaults to `pred-length`.
-- `--n-folds`: number of walk-forward folds; use `0` to run every possible fold.
-- `--target-columns`: subset of CSV columns to forecast.
-- `--output-dir`: explicit output folder, useful with `--skip-training`.
-
-Outputs:
-
-- `run_config.json`: full run setup and fold definitions.
-- `fold_000/model.pth`: trained CSDI weights for the fold.
-- `fold_000/train_history.csv`: epoch-level training loss and validation loss when validation runs.
-- `fold_000/predictions.csv`: long-form actuals, sample median/mean, and quantiles.
-- `fold_000/generated_outputs_nsample10.pk`: raw generated sample paths, targets, masks, and scalers.
-- `fold_000/metrics.json`: fold MAE/RMSE over the forecast horizon.
-- `predictions.csv`: all folds concatenated.
-- `metrics_by_fold.csv` and `summary.json`: aggregate metrics.
-
-Generate analysis plots after a run:
+## Plots
 
 ```bash
 ../venv/bin/python CSDI_Experiment/src/analyze_paths.py \
-  CSDI_Experiment/outputs/walk_forward_YYYYMMDD_HHMMSS
+  CSDI_Experiment/outputs/fixed_split_vanilla_YYYYMMDD_HHMMSS
 ```
 
-This writes `plots/` inside the run directory, including:
+This writes `plots/` with training curves, calibration, interval coverage,
+feature error rankings, cumulative generated path plots, and topology
+diagnostics.
 
-- training loss curves from `train_history.csv`,
-- MAE/RMSE/bias by forecast horizon,
-- 50% and 90% interval coverage and interval width,
-- feature error rankings,
-- actual-vs-predicted median scatter,
-- quantile calibration,
-- forecast fan charts by fold and feature,
-- cumulative return plots of generated sample paths versus realized paths.
+## Topological Variant
 
-Path evaluation uses two lenses. First, point accuracy checks whether the
-generated path center is close to the realized path, using median-path MAE,
-RMSE, bias, and feature/horizon breakdowns. Second, distribution quality checks
-whether the realized path falls inside the generated predictive distribution at
-the right frequency, using interval coverage, interval width, quantile
-calibration, and cumulative path plots.
+`run_fixed_split_cuda.sh` exposes `VARIANT_NAME` and `TOPOLOGY_LOSS_WEIGHT` so
+the vanilla and topology-regularized runs can share the same interface.
+
+The implemented topology term is a differentiable sliding-window proxy inspired
+by persistent-homology workflows:
+
+- build delay/sliding-window point clouds from the generated forecast segment,
+- match soft recurrence curves over distance thresholds,
+- match sorted pairwise-distance structure,
+- match low-frequency spectral power of the market-average path.
+
+This is not a full persistence-diagram backpropagation layer. Full persistent
+homology is computed in analytics instead, where the generated samples are
+compared to the real holdout path using H0 persistence summaries, Betti-1 graph
+cycle proxies, recurrence curves, and low-frequency power.
+
+Run matched vanilla and topology-regularized experiments:
+
+```bash
+TRAIN_END_DATE=2015-12-31 \
+HORIZON_YEARS="1 5 10" \
+TARGET_COLUMNS="Agric Food Oil Banks Softw Util" \
+EPOCHS=50 ITR_PER_EPOCH=100 NSAMPLE=50 \
+TOPOLOGY_LOSS_WEIGHT=0.05 \
+srun --partition=gpu-turing --gres=gpu:1 \
+bash CSDI_Experiment/scripts/run_topology_comparison_cuda.sh
+```
+
+This writes:
+
+- `topology_comparison_*/vanilla`
+- `topology_comparison_*/topoloss`
+- `topology_comparison_*/comparison/comparison_by_horizon.csv`
+- `topology_comparison_*/comparison/comparison_aggregate.csv`
+
+The topology plots and CSVs are under each run's `plots/` directory:
+
+- `topology_metrics.csv`
+- `topology_curves.csv`
+- `topology_summary.json`
+- `topology_distance_by_horizon.png`
+- `topology_feature_distributions.png`
+- `topology_curves/horizon_*.png`
+
+## Papers
+
+Reference PDFs are stored in `papers/` with source links in
+`papers/README.md`.

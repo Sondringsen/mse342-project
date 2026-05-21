@@ -9,65 +9,115 @@ ml course/cme213/nvhpc/24.1
 source ../venv/bin/activate
 
 
-# CUDA SMOKE TEST
+# ONE-COMMAND FULL CLUSTER RUN
 
-N_FOLDS=4 EPOCHS=2 ITR_PER_EPOCH=5 NSAMPLE=5 \
-srun --partition=gpu-turing --gres=gpu:4 \
-bash CSDI_Experiment/scripts/run_cuda.sh
+bash CSDI_Experiment/run_cluster.sh
 
-
-# FULL WALK-FORWARD CUDA RUN
-
-N_FOLDS=0 EPOCHS=50 ITR_PER_EPOCH=100 NSAMPLE=50 \
-srun --partition=gpu-turing --gres=gpu:4 \
-bash CSDI_Experiment/scripts/run_cuda.sh
+# Defaults now use log returns plus empirical standardized-return constraints:
+# RETURN_TRANSFORM=log
+# CONSTRAINT_LOSS_WEIGHT=0.02
+# CONSTRAINT_VOLATILITY_WEIGHT=0.25
+# CONSTRAINT_SAMPLE_CLAMP=1
 
 
-# STRONGER FINAL RUN
+# ONE-COMMAND MULTI-GPU CLUSTER RUN
 
-N_FOLDS=0 EPOCHS=100 ITR_PER_EPOCH=200 NSAMPLE=100 \
-srun --partition=gpu-turing --gres=gpu:4 \
-bash CSDI_Experiment/scripts/run_cuda.sh
+GPUS=4 bash CSDI_Experiment/run_cluster.sh
+
+
+# FIXED-SPLIT SMOKE TEST
+
+TRAIN_END_DATE=2015-12-31 \
+HORIZON_YEARS="1" \
+TARGET_COLUMNS="Agric Food Oil" \
+EPOCHS=2 ITR_PER_EPOCH=5 NSAMPLE=5 \
+srun --partition=gpu-turing --gres=gpu:1 \
+bash CSDI_Experiment/scripts/run_fixed_split_cuda.sh
+
+
+# FIXED-SPLIT VANILLA SCENARIO GENERATION
+
+TRAIN_END_DATE=2015-12-31 \
+HORIZON_YEARS="1 5 10" \
+TARGET_COLUMNS="Agric Food Oil Banks Softw Util" \
+EPOCHS=50 ITR_PER_EPOCH=100 NSAMPLE=50 \
+srun --partition=gpu-turing --gres=gpu:1 \
+bash CSDI_Experiment/scripts/run_fixed_split_cuda.sh
+
+
+# FIXED-SPLIT TOPOLOGY-REGULARIZED SCENARIO GENERATION
+
+VARIANT_NAME=topoloss \
+TOPOLOGY_LOSS_WEIGHT=0.05 \
+TRAIN_END_DATE=2015-12-31 \
+HORIZON_YEARS="1 5 10" \
+TARGET_COLUMNS="Agric Food Oil Banks Softw Util" \
+EPOCHS=50 ITR_PER_EPOCH=100 NSAMPLE=50 \
+srun --partition=gpu-turing --gres=gpu:1 \
+bash CSDI_Experiment/scripts/run_fixed_split_cuda.sh
+
+
+# MATCHED VANILLA VS TOPOLOGY-LOSS COMPARISON
+
+TRAIN_END_DATE=2015-12-31 \
+HORIZON_YEARS="1 5 10" \
+TARGET_COLUMNS="Agric Food Oil Banks Softw Util" \
+EPOCHS=50 ITR_PER_EPOCH=100 NSAMPLE=50 \
+TOPOLOGY_LOSS_WEIGHT=0.05 \
+srun --partition=gpu-turing --gres=gpu:1 \
+bash CSDI_Experiment/scripts/run_topology_comparison_cuda.sh
+
+
+# STRONGER FIXED-SPLIT VANILLA RUN
+
+TRAIN_END_DATE=2015-12-31 \
+HORIZON_YEARS="1 5 10" \
+TARGET_COLUMNS="Agric Food Oil Banks Softw Util" \
+EPOCHS=100 ITR_PER_EPOCH=200 NSAMPLE=100 \
+srun --partition=gpu-turing --gres=gpu:1 \
+bash CSDI_Experiment/scripts/run_fixed_split_cuda.sh
 
 
 # USE A NONSTANDARD VENV
 
 PYTHON=/path/to/venv/bin/python \
-N_FOLDS=4 EPOCHS=2 ITR_PER_EPOCH=5 NSAMPLE=5 \
-srun --partition=gpu-turing --gres=gpu:4 \
-bash CSDI_Experiment/scripts/run_cuda.sh
-
-
-# OUTPUT LOCATION
-
-CSDI_Experiment/outputs/cuda_walk_forward_YYYYMMDD_HHMMSS
-
-
-# WATCH WORKER LOGS
-
-tail -f CSDI_Experiment/outputs/cuda_walk_forward_*/worker_gpu_*.log
-
-
-# DISABLE LIVE LOG STREAMING
-
-STREAM_LOGS=0 \
-N_FOLDS=0 EPOCHS=50 ITR_PER_EPOCH=100 NSAMPLE=50 \
-srun --partition=gpu-turing --gres=gpu:4 \
-bash CSDI_Experiment/scripts/run_cuda.sh
+TRAIN_END_DATE=2015-12-31 \
+HORIZON_YEARS="1" \
+TARGET_COLUMNS="Agric Food Oil" \
+EPOCHS=2 ITR_PER_EPOCH=5 NSAMPLE=5 \
+srun --partition=gpu-turing --gres=gpu:1 \
+bash CSDI_Experiment/scripts/run_fixed_split_cuda.sh
 
 
 # CHANGE LIVE PROGRESS FREQUENCY
 
 CSDI_PROGRESS_INTERVAL=5 \
-N_FOLDS=0 EPOCHS=50 ITR_PER_EPOCH=100 NSAMPLE=50 \
-srun --partition=gpu-turing --gres=gpu:4 \
-bash CSDI_Experiment/scripts/run_cuda.sh
+TRAIN_END_DATE=2015-12-31 \
+HORIZON_YEARS="1 5 10" \
+TARGET_COLUMNS="Agric Food Oil Banks Softw Util" \
+EPOCHS=50 ITR_PER_EPOCH=100 NSAMPLE=50 \
+srun --partition=gpu-turing --gres=gpu:1 \
+bash CSDI_Experiment/scripts/run_fixed_split_cuda.sh
+
+
+# OUTPUT LOCATION
+
+CSDI_Experiment/outputs/fixed_split_vanilla_YYYYMMDD_HHMMSS
 
 
 # GENERATE PLOTS FOR AN EXISTING RUN
 
 ../venv/bin/python CSDI_Experiment/src/analyze_paths.py \
-CSDI_Experiment/outputs/cuda_walk_forward_YYYYMMDD_HHMMSS
+CSDI_Experiment/outputs/fixed_split_vanilla_YYYYMMDD_HHMMSS
+
+
+# COMPARE TWO ALREADY-ANALYZED RUNS
+
+../venv/bin/python CSDI_Experiment/src/compare_runs.py \
+CSDI_Experiment/outputs/fixed_split_vanilla_YYYYMMDD_HHMMSS \
+CSDI_Experiment/outputs/fixed_split_topoloss_YYYYMMDD_HHMMSS \
+--labels vanilla topoloss \
+--output-dir CSDI_Experiment/outputs/manual_comparison
 
 
 # MOVE CODE TO CLUSTER
@@ -91,7 +141,7 @@ rsync -av \
 
 # MOVE ONE RUN BACK FROM CLUSTER
 
-RUN_DIR=cuda_walk_forward_YYYYMMDD_HHMMSS
+RUN_DIR=fixed_split_vanilla_YYYYMMDD_HHMMSS
 
 rsync -av \
   bjornts@cme213-login.stanford.edu:~/mse342-project/CSDI_Experiment/outputs/$RUN_DIR/ \
