@@ -206,6 +206,10 @@ tempCodeRunnerFile.py
 # Ruff stuff:
 .ruff_cache/
 
+# Generated market data
+data/raw/
+data/processed/
+
 # PyPI configuration file
 .pypirc
 
@@ -216,3 +220,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+
+# OUtputs
+*outputs/*

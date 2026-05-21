@@ -1,0 +1,98 @@
+# RUN FROM REPO ROOT
+
+cd ~/mse342-project
+
+
+# CLUSTER SETUP
+
+ml course/cme213/nvhpc/24.1
+source ../venv/bin/activate
+
+
+# CUDA SMOKE TEST
+
+N_FOLDS=4 EPOCHS=2 ITR_PER_EPOCH=5 NSAMPLE=5 \
+srun --partition=gpu-turing --gres=gpu:4 \
+bash CSDI_Experiment/scripts/run_cuda.sh
+
+
+# FULL WALK-FORWARD CUDA RUN
+
+N_FOLDS=0 EPOCHS=50 ITR_PER_EPOCH=100 NSAMPLE=50 \
+srun --partition=gpu-turing --gres=gpu:4 \
+bash CSDI_Experiment/scripts/run_cuda.sh
+
+
+# STRONGER FINAL RUN
+
+N_FOLDS=0 EPOCHS=100 ITR_PER_EPOCH=200 NSAMPLE=100 \
+srun --partition=gpu-turing --gres=gpu:4 \
+bash CSDI_Experiment/scripts/run_cuda.sh
+
+
+# USE A NONSTANDARD VENV
+
+PYTHON=/path/to/venv/bin/python \
+N_FOLDS=4 EPOCHS=2 ITR_PER_EPOCH=5 NSAMPLE=5 \
+srun --partition=gpu-turing --gres=gpu:4 \
+bash CSDI_Experiment/scripts/run_cuda.sh
+
+
+# OUTPUT LOCATION
+
+CSDI_Experiment/outputs/cuda_walk_forward_YYYYMMDD_HHMMSS
+
+
+# WATCH WORKER LOGS
+
+tail -f CSDI_Experiment/outputs/cuda_walk_forward_*/worker_gpu_*.log
+
+
+# DISABLE LIVE LOG STREAMING
+
+STREAM_LOGS=0 \
+N_FOLDS=0 EPOCHS=50 ITR_PER_EPOCH=100 NSAMPLE=50 \
+srun --partition=gpu-turing --gres=gpu:4 \
+bash CSDI_Experiment/scripts/run_cuda.sh
+
+
+# CHANGE LIVE PROGRESS FREQUENCY
+
+CSDI_PROGRESS_INTERVAL=5 \
+N_FOLDS=0 EPOCHS=50 ITR_PER_EPOCH=100 NSAMPLE=50 \
+srun --partition=gpu-turing --gres=gpu:4 \
+bash CSDI_Experiment/scripts/run_cuda.sh
+
+
+# GENERATE PLOTS FOR AN EXISTING RUN
+
+../venv/bin/python CSDI_Experiment/src/analyze_paths.py \
+CSDI_Experiment/outputs/cuda_walk_forward_YYYYMMDD_HHMMSS
+
+
+# MOVE CODE TO CLUSTER
+
+rsync -av --delete \
+  --exclude '.git/' \
+  --exclude '__pycache__/' \
+  --exclude '*.pyc' \
+  --exclude 'CSDI_Experiment/outputs/' \
+  --exclude 'CSDI/save/' \
+  "/Users/bjorn/Projects/skoli_drive/MS&E 342/mse342-project/" \
+  bjornts@cme213-login.stanford.edu:~/mse342-project/
+
+
+# MOVE RESULTS BACK FROM CLUSTER
+
+rsync -av \
+  bjornts@cme213-login.stanford.edu:~/mse342-project/CSDI_Experiment/outputs/ \
+  "/Users/bjorn/Projects/skoli_drive/MS&E 342/mse342-project/CSDI_Experiment/outputs/"
+
+
+# MOVE ONE RUN BACK FROM CLUSTER
+
+RUN_DIR=cuda_walk_forward_YYYYMMDD_HHMMSS
+
+rsync -av \
+  bjornts@cme213-login.stanford.edu:~/mse342-project/CSDI_Experiment/outputs/$RUN_DIR/ \
+  "/Users/bjorn/Projects/skoli_drive/MS&E 342/mse342-project/CSDI_Experiment/outputs/$RUN_DIR/"
