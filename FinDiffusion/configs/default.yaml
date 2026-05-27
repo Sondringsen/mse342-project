@@ -50,7 +50,7 @@ training:
   
   # Optimizer
   optimizer: "adamw"
-  lr: 3.0e-5
+  lr: 1.0e-04 # 3.0e-5 set to this if learning rate is too high
   weight_decay: 0.01
   betas: [0.9, 0.999]
   

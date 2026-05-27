@@ -261,8 +261,10 @@ def create_visualizations(
     
     for i in range(2):
         # Cumulative returns
-        cum_real = np.cumprod(1 + real[i])
-        cum_syn = np.cumprod(1 + synthetic[i])
+        real_1d = real[i].flatten() if real[i].ndim > 1 else real[i]
+        syn_1d = synthetic[i].flatten() if synthetic[i].ndim > 1 else synthetic[i]
+        cum_real = np.cumprod(1 + real_1d)
+        cum_syn = np.cumprod(1 + syn_1d)
         
         axes[i, 0].plot(cum_real, label="Real", alpha=0.8)
         axes[i, 0].plot(cum_syn, label="Synthetic", alpha=0.8)
@@ -273,8 +275,8 @@ def create_visualizations(
         
         # Rolling volatility
         window = 21
-        vol_real = np.convolve(np.abs(real[i]), np.ones(window)/window, mode='valid')
-        vol_syn = np.convolve(np.abs(synthetic[i]), np.ones(window)/window, mode='valid')
+        vol_real = np.convolve(np.abs(real_1d), np.ones(window)/window, mode='valid')
+        vol_syn = np.convolve(np.abs(syn_1d), np.ones(window)/window, mode='valid')
         
         axes[i, 1].plot(vol_real * np.sqrt(252), label="Real", alpha=0.8)
         axes[i, 1].plot(vol_syn * np.sqrt(252), label="Synthetic", alpha=0.8)
