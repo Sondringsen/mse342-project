@@ -330,22 +330,89 @@ def validate_stylized_facts(
     significance_level: float = 0.05,
 ) -> Dict:
     """
-    Convenience function to validate stylized facts.
-    
+    Validate stylized facts on a single 1-D return series.
+
     Args:
-        returns: Array of returns (can be 2D, will aggregate)
+        returns: 1-D (or flat-able) array of returns
         significance_level: Alpha for statistical tests
-    
+
     Returns:
         Dict with validation results
     """
     validator = StylizedFactsValidator(significance_level)
-    
-    # Flatten if 2D
     if returns.ndim > 1:
         returns = returns.flatten()
-    
     return validator.validate_all(returns)
+
+
+def validate_stylized_facts_per_sequence(
+    returns: np.ndarray,
+    significance_level: float = 0.05,
+) -> Dict:
+    """
+    Validate stylized facts by evaluating each sequence independently
+    and aggregating the statistics before making pass/fail decisions.
+
+    This avoids the artefacts introduced by concatenating overlapping or
+    independent windows into one long series (corrupted boundary pairs,
+    inflated Ljung-Box power, etc.).
+
+    Args:
+        returns: Array of shape (N, T) or (N, T, 1)
+        significance_level: Alpha for statistical tests
+
+    Returns:
+        Dict with aggregated validation results (same schema as validate_stylized_facts)
+    """
+    validator = StylizedFactsValidator(significance_level)
+
+    if returns.ndim == 3:
+        returns = returns.squeeze(-1)  # (N, T, 1) -> (N, T)
+    if returns.ndim == 1:
+        return validator.validate_all(returns)
+
+    n_sequences = len(returns)
+
+    # Per-sequence results
+    seq_results = [validator.validate_all(returns[i]) for i in range(n_sequences)]
+
+    # Fields to average for each test (string fields are dropped)
+    _agg_fields = {
+        "fat_tails": ["excess_kurtosis", "skewness", "jarque_bera_stat", "jarque_bera_pvalue", "tail_index"],
+        "volatility_clustering": ["acf_squared_lag1", "acf_squared_lag5", "acf_squared_lag10",
+                                  "acf_absolute_lag1", "ljung_box_pvalue"],
+        "leverage_effect": ["leverage_correlation", "vol_after_negative", "vol_after_positive", "asymmetry_ratio"],
+        "no_autocorrelation": ["acf_lag1", "acf_lag5", "ljung_box_pvalue"],
+    }
+
+    aggregated: Dict = {}
+
+    for test_name, fields in _agg_fields.items():
+        test_rows = [r[test_name] for r in seq_results]
+        agg = {f: float(np.mean([row[f] for row in test_rows])) for f in fields}
+
+        # Re-apply pass/fail on aggregated statistics
+        if test_name == "fat_tails":
+            passed = (agg["excess_kurtosis"] > 0) and (agg["jarque_bera_pvalue"] < significance_level)
+        elif test_name == "volatility_clustering":
+            passed = (agg["acf_squared_lag1"] > 0.05) or (agg["ljung_box_pvalue"] < significance_level)
+        elif test_name == "leverage_effect":
+            passed = agg["leverage_correlation"] < -0.02
+        else:  # no_autocorrelation
+            passed = (abs(agg["acf_lag1"]) < 0.1) and (agg["ljung_box_pvalue"] > significance_level)
+
+        aggregated[test_name] = {"test": test_name, "passed": passed, "n_sequences": n_sequences, **agg}
+
+    n_passed = sum(1 for v in aggregated.values() if v["passed"])
+    n_total = len(aggregated)
+    aggregated["summary"] = {
+        "tests_passed": n_passed,
+        "tests_total": n_total,
+        "pass_rate": n_passed / n_total,
+        "overall_quality": validator._overall_quality(n_passed, n_total),
+    }
+
+    return aggregated
 
 
 def compare_distributions(

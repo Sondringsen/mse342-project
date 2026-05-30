@@ -20,6 +20,7 @@ from src.data import FinancialDataModule
 from src.evaluation import (
     StylizedFactsValidator,
     validate_stylized_facts,
+    validate_stylized_facts_per_sequence,
     compute_all_metrics,
     print_metrics_report,
 )
@@ -120,15 +121,15 @@ def evaluate_stylized_facts(real: np.ndarray, synthetic: np.ndarray, output_dir:
     """Evaluate stylized facts for both real and synthetic data."""
     logger.info("Evaluating stylized facts...")
     
-    # Validate real data
-    real_results = validate_stylized_facts(real)
+    # Validate real data (per-sequence to avoid window-boundary artefacts)
+    real_results = validate_stylized_facts_per_sequence(real)
     logger.info("Real data stylized facts:")
     for test_name, result in real_results.items():
         if test_name != "summary":
             logger.info(f"  {test_name}: {'PASS' if result['passed'] else 'FAIL'}")
-    
+
     # Validate synthetic data
-    syn_results = validate_stylized_facts(synthetic)
+    syn_results = validate_stylized_facts_per_sequence(synthetic)
     logger.info("Synthetic data stylized facts:")
     for test_name, result in syn_results.items():
         if test_name != "summary":
