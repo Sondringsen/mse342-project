@@ -15,7 +15,7 @@ import yaml
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.models import FinancialDiffusion
+from src.models import FinancialDiffusion, TopologicalLoss
 from src.data import FinancialDataModule
 from src.training import Trainer, TrainingConfig
 
@@ -123,6 +123,28 @@ def main():
     )
     data_module.setup()
 
+    # Build topological loss module (ddpm_topo only)
+    # compute_reference() is called here, on CPU; model.to(device) inside
+    # the Trainer will automatically move the reference buffer to the GPU.
+    topo_loss_fn = None
+    if args.model == "ddpm_topo":
+        topo_cfg = config.get("topo", {})
+        if args.debug:
+            topo_cfg["n_ref_samples"] = 10
+            topo_cfg["topo_batch_size"] = 4
+        topo_loss_fn = TopologicalLoss(
+            window_dim=topo_cfg.get("window_dim", 3),
+            n_landscapes=topo_cfg.get("n_landscapes", 3),
+            n_grid_points=topo_cfg.get("n_grid_points", 50),
+            topo_weight=topo_cfg.get("topo_weight", 0.1),
+            apply_every_n_steps=topo_cfg.get("apply_every_n_steps", 5),
+            topo_batch_size=topo_cfg.get("topo_batch_size", 16),
+            n_ref_samples=topo_cfg.get("n_ref_samples", 500),
+        )
+        topo_loss_fn.compute_reference(
+            data_module.train_dataloader(), device=torch.device("cpu")
+        )
+
     # Create model
     logger.info("Creating model...")
     model = FinancialDiffusion(
@@ -140,6 +162,7 @@ def main():
         beta_end=config["model"]["beta_end"],
         prediction_type=config["model"]["prediction_type"],
         dropout=config["model"]["dropout"],
+        topo_loss_fn=topo_loss_fn,
     )
 
     # Count parameters

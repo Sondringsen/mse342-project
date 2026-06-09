@@ -211,11 +211,15 @@ class Trainer:
             # Log to wandb
             if self.config.use_wandb and batch_idx % self.config.log_every == 0:
                 import wandb
-                wandb.log({
+                log_dict = {
                     "train/loss": loss.item(),
                     "train/lr": self.scheduler.get_last_lr()[0],
                     "global_step": self.global_step,
-                })
+                }
+                if "topo_loss" in outputs:
+                    log_dict["train/ddpm_loss"] = outputs["ddpm_loss"].item()
+                    log_dict["train/topo_loss"] = outputs["topo_loss"].item()
+                wandb.log(log_dict)
         
         return total_loss / num_batches
 

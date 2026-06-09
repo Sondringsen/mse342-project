@@ -93,7 +93,12 @@ def main():
         prediction_type=config["model"]["prediction_type"],
         dropout=0.0,
     )
-    model.load_state_dict(checkpoint["model_state_dict"])
+    # Strip topo buffers — not needed for inference, only present in ddpm_topo checkpoints
+    state_dict = {
+        k: v for k, v in checkpoint["model_state_dict"].items()
+        if not k.startswith("topo_loss_fn.")
+    }
+    model.load_state_dict(state_dict)
     model.to(device)
     model.eval()
 

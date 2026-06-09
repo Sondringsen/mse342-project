@@ -34,7 +34,14 @@ Runs all three phases (train DDPM model, generate data, train hedging model on s
 
 ```bash
 cd FinDiffusion
-python scripts/pipeline.py --model ddpm
+python scripts/pipeline.py --model ddpm --ddim
+```
+
+For debugging you can use
+
+```bash
+cd FinDiffusion
+python scripts/pipeline.py --model ddpm --debug --ddim
 ```
 
 Optional overrides:

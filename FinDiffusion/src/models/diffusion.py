@@ -340,17 +340,28 @@ class GaussianDiffusion(nn.Module):
         x_0: torch.Tensor,
         cond: Optional[torch.Tensor] = None,
         noise: Optional[torch.Tensor] = None,
+        topo_loss_fn: Optional[torch.nn.Module] = None,
     ) -> Dict[str, torch.Tensor]:
         """
         Compute training loss.
-        
+
+        L_total = L_DDPM  [+ α_topo · L_topo  when topo_loss_fn is set]
+
+        L_DDPM  = E[‖ε − ε_θ(x_t, t)‖²]
+        L_topo  = MSE between H₁ persistence landscape of predicted x̂₀
+                  and the pre-computed mean landscape of real training data.
+
+        x̂₀ is recovered from the noise prediction via:
+            x̂₀ = (x_t − √(1−ᾱ_t) · ε_θ) / √ᾱ_t
+
         Args:
-            x_0: Clean data
-            cond: Optional condition embedding
-            noise: Optional pre-generated noise
-        
+            x_0          : Clean data
+            cond         : Optional condition embedding
+            noise        : Optional pre-generated noise
+            topo_loss_fn : TopologicalLoss module (None → plain DDPM)
+
         Returns:
-            Dict with 'loss' and optionally other metrics
+            Dict with 'loss', and 'ddpm_loss'/'topo_loss' when topo is active.
         """
         batch_size = x_0.shape[0]
         device = x_0.device
@@ -372,9 +383,22 @@ class GaussianDiffusion(nn.Module):
         else:
             target = x_0
 
-        loss = F.mse_loss(model_output, target)
+        loss_ddpm = F.mse_loss(model_output, target)
 
-        return {"loss": loss}
+        if topo_loss_fn is not None:
+            # Recover predicted x̂₀ to compute topological features
+            if self.prediction_type == "epsilon":
+                x_hat_0 = self.predict_x0_from_eps(x_t, t, model_output)
+            else:
+                x_hat_0 = model_output
+            if x_hat_0.dim() == 3:
+                x_hat_0 = x_hat_0.squeeze(-1)   # (B, T, 1) → (B, T)
+
+            loss_topo = topo_loss_fn.compute(x_hat_0)
+            loss = loss_ddpm + topo_loss_fn.topo_weight * loss_topo
+            return {"loss": loss, "ddpm_loss": loss_ddpm, "topo_loss": loss_topo}
+
+        return {"loss": loss_ddpm}
 
 
 class FinancialDiffusion(nn.Module):
@@ -400,11 +424,16 @@ class FinancialDiffusion(nn.Module):
         prediction_type: str = "epsilon",
         dropout: float = 0.1,
         denoiser_type: str = "transformer",  # "transformer" or "conv"
+        topo_loss_fn: Optional["nn.Module"] = None,
     ):
         super().__init__()
 
         self.seq_len = seq_len
         self.input_dim = input_dim
+
+        # Topological loss module (None → plain DDPM, TopologicalLoss → ddpm_topo)
+        # Stored as an nn.Module so its buffers move with the model on .to(device)
+        self.topo_loss_fn = topo_loss_fn
 
         # Condition encoder
         self.condition_encoder = ConditionEncoder(
@@ -455,9 +484,9 @@ class FinancialDiffusion(nn.Module):
             x: Clean returns of shape (B, T) or (B, T, 1)
 
         Returns:
-            Dict with 'loss'
+            Dict with 'loss' (and 'ddpm_loss'/'topo_loss' when topo is active)
         """
-        return self.diffusion.training_loss(x, cond=None)
+        return self.diffusion.training_loss(x, cond=None, topo_loss_fn=self.topo_loss_fn)
 
     @torch.no_grad()
     def generate(

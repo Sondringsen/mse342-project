@@ -92,6 +92,17 @@ evaluation:
   # Significance level for statistical tests
   alpha: 0.05
 
+# Topological regularization (only used when --model ddpm_topo)
+# See topo_plan.md for mathematical details.
+topo:
+  window_dim: 3             # delay embedding dimension d (Gidea et al. use 3)
+  n_landscapes: 3           # number of landscape functions N_λ
+  n_grid_points: 50         # landscape grid resolution N_g
+  topo_weight: 0.1          # α_topo weight in L_total = L_DDPM + α·L_topo
+  apply_every_n_steps: 5    # compute topo loss every N steps (cost control)
+  topo_batch_size: 16       # sub-batch size for persistence computation
+  n_ref_samples: 500        # max sequences used to build the reference landscape
+
 # Logging
 logging:
   use_wandb: true
