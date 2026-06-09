@@ -115,7 +115,7 @@ Saves weights to `outputs/{model}/checkpoints/final.pt`.
 
 ```bash
 cd FinDiffusion
-python scripts/generate.py --model ddpm --config configs/default.yaml --n_samples 10000
+python scripts/generate.py --model ddpm --config configs/default.yaml --n_samples 10000 --ddim
 ```
 
 Optional conditioning:
@@ -156,26 +156,28 @@ Saves weights to `outputs/{model}/hedging/hedging_model.pt`.
 
 ### 5.1 Evaluate diffusion model quality (single condition)
 
-Generate data first, then evaluate:
+Load the pre-generated CSV from the pipeline (no recomputation):
 
 ```bash
 cd FinDiffusion
 python scripts/evaluate_single.py \
-  --checkpoint outputs/ddpm/checkpoints/final.pt \
-  --config configs/default.yaml \
-  --trend 0.1 --vol 0.2 --regime sideways \
-  --n_samples 1000 \
+  --data outputs/ddpm/synthetic.csv \
   --output_dir outputs/ddpm/evaluation_single
 ```
 
-Or load a previously saved CSV (skips generation):
+If you need to generate data for a specific condition first:
 
 ```bash
-python scripts/evaluate_single.py \
-  --data outputs/ddpm/evaluation_single/synthetic.csv
-```
+python scripts/generate.py \
+  --model ddpm \
+  --trend 0.1 --volatility 0.2 --regime sideways \
+  --n_samples 1000 --ddim \
+  --output outputs/ddpm/evaluation_single/synthetic.csv
 
-Add `--ddim` to either command for faster sampling.
+python scripts/evaluate_single.py \
+  --data outputs/ddpm/evaluation_single/synthetic.csv \
+  --output_dir outputs/ddpm/evaluation_single
+```
 
 ### 5.2 Evaluate hedging model on real test data
 

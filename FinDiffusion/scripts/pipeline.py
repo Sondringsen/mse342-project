@@ -43,6 +43,8 @@ def main():
     # Diffusion training
     parser.add_argument("--n_epochs_diffusion", type=int, default=None,
                         help="Epochs for the diffusion model (default: from config)")
+    parser.add_argument("--debug", action="store_true",
+                        help="Quick smoke-test: 2 epochs, 5 tickers, tiny generate/hedge")
     parser.add_argument("--seed",  type=int, default=None)
     parser.add_argument("--wandb", action="store_true")
     parser.add_argument("--ddim",  action="store_true", help="Use DDIM for generation")
@@ -69,17 +71,21 @@ def main():
     logger.info("=" * 60)
 
     train_cmd = [py, str(scripts / "train.py"), "--model", args.model, "--config", args.config]
+    if args.debug:
+        train_cmd.append("--debug")
     if args.n_epochs_diffusion is not None:
-        # Patch epochs via a temporary config override isn't clean; pass as note only.
-        # The user can set epochs in the config file directly.
         logger.warning(
-            "--n_epochs_diffusion is informational only; set training.epochs in the config file."
+            "--n_epochs_diffusion is not yet supported; set training.epochs in the config file."
         )
     if args.seed is not None:
         train_cmd += ["--seed", str(args.seed)]
     if args.wandb:
         train_cmd.append("--wandb")
     run(train_cmd)
+
+    if args.debug:
+        args.n_generate = min(args.n_generate, 100)
+        args.n_epochs_hedging = min(args.n_epochs_hedging, 2)
 
     # ── Phase 2: generate synthetic data ──────────────────────────────────────
     logger.info("=" * 60)
