@@ -1,0 +1,180 @@
+\begin{thebibliography}{}
+
+\bibitem[\protect\citeauthoryear{Arjovsky \bgroup \em et al.\egroup }{2017}]{arjovsky2017wasserstein}
+Martin Arjovsky, Soumith Chintala, and L{\'e}on Bottou.
+\newblock Wasserstein generative adversarial networks.
+\newblock In {\em International conference on machine learning}, pages 214--223. PMLR, 2017.
+
+\bibitem[\protect\citeauthoryear{Assefa \bgroup \em et al.\egroup }{2021}]{synthetic_data_overview}
+Samuel~A. Assefa, Danial Dervovic, Mahmoud Mahfouz, Robert~E. Tillman, Prashant Reddy, and Manuela Veloso.
+\newblock Generating synthetic data in finance: opportunities, challenges and pitfalls.
+\newblock ICAIF '20, New York, NY, USA, 2021. Association for Computing Machinery.
+
+\bibitem[\protect\citeauthoryear{Ba}{2016}]{ba2016layer}
+Jimmy~Lei Ba.
+\newblock Layer normalization.
+\newblock {\em arXiv preprint arXiv:1607.06450}, 2016.
+
+\bibitem[\protect\citeauthoryear{Black and Scholes}{1973}]{black1973pricing}
+Fischer Black and Myron Scholes.
+\newblock The pricing of options and corporate liabilities.
+\newblock {\em Journal of political economy}, 81(3):637--654, 1973.
+
+\bibitem[\protect\citeauthoryear{Bollerslev}{1986}]{bollerslev1986generalized}
+Tim Bollerslev.
+\newblock Generalized autoregressive conditional heteroskedasticity.
+\newblock {\em Journal of econometrics}, 31(3):307--327, 1986.
+
+\bibitem[\protect\citeauthoryear{Chou}{1988}]{5a87335d-68e7-3cf5-bb64-13813f1b0f7f}
+Ray~Yeutien Chou.
+\newblock Volatility persistence and stock valuations: Some empirical evidence using garch.
+\newblock {\em Journal of Applied Econometrics}, 3(4):279--294, 1988.
+
+\bibitem[\protect\citeauthoryear{Cont}{2001}]{volatility_clustering}
+R.~Cont.
+\newblock Empirical properties of asset returns: stylized facts and statistical issues.
+\newblock {\em Quantitative Finance}, 1(2):223--236, 2001.
+
+\bibitem[\protect\citeauthoryear{Dogariu \bgroup \em et al.\egroup }{2022}]{vae_gan}
+Mihai Dogariu, Liviu-Daniel \c{S}tefan, Bogdan~Andrei Boteanu, Claudiu Lamba, Bomi Kim, and Bogdan Ionescu.
+\newblock Generation of realistic synthetic financial time-series.
+\newblock {\em ACM Trans. Multimedia Comput. Commun. Appl.}, 18(4), mar 2022.
+
+\bibitem[\protect\citeauthoryear{Engle}{1982}]{engle1982autoregressive}
+Robert~F Engle.
+\newblock Autoregressive conditional heteroscedasticity with estimates of the variance of united kingdom inflation.
+\newblock {\em Econometrica: Journal of the econometric society}, pages 987--1007, 1982.
+
+\bibitem[\protect\citeauthoryear{Fama}{1965}]{kurtosis}
+E~Fama.
+\newblock The behaviour of stock market prices.
+\newblock {\em Journal of Business}, 64:1163--1174, 1965.
+
+\bibitem[\protect\citeauthoryear{Gabaix \bgroup \em et al.\egroup }{2003}]{empirical_power_law_return1}
+Xavier Gabaix, Parameswaran Gopikrishnan, Vasiliki Plerou, and H.~Stanley.
+\newblock A theory of power-law distributions in financial market fluctuations.
+\newblock {\em Nature}, 423:267--70, 06 2003.
+
+\bibitem[\protect\citeauthoryear{Gabaix \bgroup \em et al.\egroup }{2006}]{cubic_law}
+X.~Gabaix, P~Gopikrishnan, V~Plerou, and HE~Stanley.
+\newblock Institutional investors and stock market volatility.
+\newblock {\em Quarterly Journal of Economics}, 121(2):461--504, 2006.
+
+\bibitem[\protect\citeauthoryear{Goodfellow \bgroup \em et al.\egroup }{2014}]{gan}
+Ian~J. Goodfellow, Jean Pouget-Abadie, Mehdi Mirza, Bing Xu, David Warde-Farley, Sherjil Ozair, Aaron Courville, and Yoshua Bengio.
+\newblock Generative adversarial networks, 2014.
+
+\bibitem[\protect\citeauthoryear{Gopikrishnan \bgroup \em et al.\egroup }{1999}]{empirical_power_law_return3}
+Parameswaran Gopikrishnan, Vasiliki Plerou, Luís Amaral, Martin Meyer, and H.~Stanley.
+\newblock Scaling of the distribution of fluctuations of financial market indices.
+\newblock {\em Physical review. E, Statistical physics, plasmas, fluids, and related interdisciplinary topics}, 60:5305--16, 12 1999.
+
+\bibitem[\protect\citeauthoryear{H.~Buehler and Wood}{2019}]{deep_hedging}
+J.~Teichmann H.~Buehler, L.~Gonon and B.~Wood.
+\newblock Deep hedging.
+\newblock {\em Quantitative Finance}, 19(8):1271--1291, 2019.
+
+\bibitem[\protect\citeauthoryear{Hill}{1975}]{hill}
+Bruce~M. Hill.
+\newblock A simple general approach to inference about the tail of a distribution.
+\newblock {\em The Annals of Statistics}, 3(5):1163--1174, 1975.
+
+\bibitem[\protect\citeauthoryear{Hirano \bgroup \em et al.\egroup }{2023a}]{deephedging_gan}
+Masanori Hirano, Kentaro Minami, and Kentaro Imajo.
+\newblock Adversarial deep hedging: Learning to hedge without price process modeling.
+\newblock In {\em Proceedings of the Fourth ACM International Conference on AI in Finance}, ICAIF '23, page 19–26, New York, NY, USA, 2023. Association for Computing Machinery.
+
+\bibitem[\protect\citeauthoryear{Hirano \bgroup \em et al.\egroup }{2023b}]{hirano2023adversarial}
+Masanori Hirano, Kentaro Minami, and Kentaro Imajo.
+\newblock Adversarial deep hedging: Learning to hedge without price process modeling.
+\newblock In {\em Proceedings of the Fourth ACM International Conference on AI in Finance}, pages 19--26, 2023.
+
+\bibitem[\protect\citeauthoryear{Ho \bgroup \em et al.\egroup }{2020}]{ho2020denoising}
+Jonathan Ho, wavelet~Ajay Jain, and Pieter Abbeel.
+\newblock Denoising diffusion probabilistic models.
+\newblock {\em Advances in neural information processing systems}, 33:6840--6851, 2020.
+
+\bibitem[\protect\citeauthoryear{Kingma and Welling}{2022}]{vae}
+Diederik~P Kingma and Max Welling.
+\newblock Auto-encoding variational bayes, 2022.
+
+\bibitem[\protect\citeauthoryear{Kirilenko \bgroup \em et al.\egroup }{2017}]{kirilenko2017flash}
+Andrei Kirilenko, Albert~S Kyle, Mehrdad Samadi, and Tugkan Tuzun.
+\newblock The flash crash: High-frequency trading in an electronic market.
+\newblock {\em The Journal of Finance}, 72(3):967--998, 2017.
+
+\bibitem[\protect\citeauthoryear{Li \bgroup \em et al.\egroup }{2020}]{li2020generating}
+Junyi Li, Xintong Wang, Yaoyang Lin, Arunesh Sinha, and Michael Wellman.
+\newblock Generating realistic stock market order streams.
+\newblock In {\em Proceedings of the AAAI Conference on Artificial Intelligence}, volume~34, pages 727--734, 2020.
+
+\bibitem[\protect\citeauthoryear{Liu \bgroup \em et al.\egroup }{2022}]{gan_to_rl}
+Chunli Liu, Carmine Ventre, and Maria Polukarov.
+\newblock Synthetic data augmentation for deep reinforcement learning in financial trading.
+\newblock In {\em Proceedings of the Third ACM International Conference on AI in Finance}, ICAIF '22, page 343–351, New York, NY, USA, 2022. Association for Computing Machinery.
+
+\bibitem[\protect\citeauthoryear{Lux}{1998}]{empirical_power_law_return2}
+Thomas Lux.
+\newblock The limiting extremal behaviour of speculative returns: An analysis of intra-daily data from the frankfurt stock exchange.
+\newblock {\em IFAC Proceedings Volumes}, 31(16):29--33, 1998.
+
+\bibitem[\protect\citeauthoryear{Malmsten and Ter{\"a}svirta}{2010}]{malmsten2010stylized}
+Hans Malmsten and Timo Ter{\"a}svirta.
+\newblock Stylized facts of financial time series and three popular models of volatility.
+\newblock {\em European Journal of pure and applied mathematics}, 3(3):443--477, 2010.
+
+\bibitem[\protect\citeauthoryear{Mao \bgroup \em et al.\egroup }{2017}]{mao2017least}
+Xudong Mao, Qing Li, Haoran Xie, Raymond~YK Lau, Zhen Wang, and Stephen Paul~Smolley.
+\newblock Least squares generative adversarial networks.
+\newblock In {\em Proceedings of the IEEE international conference on computer vision}, pages 2794--2802, 2017.
+
+\bibitem[\protect\citeauthoryear{Masi \bgroup \em et al.\egroup }{2023}]{gan_multiple}
+Giuseppe Masi, Matteo Prata, Michele Conti, Novella Bartolini, and Svitlana Vyetrenko.
+\newblock On correlated stock market time series generation.
+\newblock In {\em Proceedings of the Fourth ACM International Conference on AI in Finance}, ICAIF '23, page 524–532, New York, NY, USA, 2023. Association for Computing Machinery.
+
+\bibitem[\protect\citeauthoryear{Mikkil{\"a} and Kanniainen}{2023}]{mikkila2023empirical}
+Oskari Mikkil{\"a} and Juho Kanniainen.
+\newblock Empirical deep hedging.
+\newblock {\em Quantitative Finance}, 23(1):111--122, 2023.
+
+\bibitem[\protect\citeauthoryear{Mirza and Osindero}{2014}]{mirza2014conditionalgenerativeadversarialnets}
+Mehdi Mirza and Simon Osindero.
+\newblock Conditional generative adversarial nets, 2014.
+
+\bibitem[\protect\citeauthoryear{Nair and Hinton}{2010}]{nair2010rectified}
+Vinod Nair and Geoffrey~E Hinton.
+\newblock Rectified linear units improve restricted boltzmann machines.
+\newblock In {\em Proceedings of the 27th international conference on machine learning (ICML-10)}, pages 807--814, 2010.
+
+\bibitem[\protect\citeauthoryear{Ni \bgroup \em et al.\egroup }{2022}]{gan_time_series}
+Hao Ni, Lukasz Szpruch, Marc Sabate-Vidales, Baoren Xiao, Magnus Wiese, and Shujian Liao.
+\newblock Sig-wasserstein gans for time series generation.
+\newblock In {\em Proceedings of the Second ACM International Conference on AI in Finance}, ICAIF '21, New York, NY, USA, 2022. Association for Computing Machinery.
+
+\bibitem[\protect\citeauthoryear{Ramsey \bgroup \em et al.\egroup }{1995}]{wavelet}
+James~B. Ramsey, Daniel Usikov, and George~M. Zaslavsky.
+\newblock An analysis of u.s. stock price behavior using wavelets.
+\newblock {\em Fractals}, 03(02):377--389, 1995.
+
+\bibitem[\protect\citeauthoryear{Rombach \bgroup \em et al.\egroup }{2022}]{rombach2022high}
+Robin Rombach, Andreas Blattmann, Dominik Lorenz, Patrick Esser, and Bj{\"o}rn Ommer.
+\newblock High-resolution image synthesis with latent diffusion models.
+\newblock In {\em Proceedings of the IEEE/CVF conference on computer vision and pattern recognition}, pages 10684--10695, 2022.
+
+\bibitem[\protect\citeauthoryear{Sattarov \bgroup \em et al.\egroup }{2023}]{findiff}
+Timur Sattarov, Marco Schreyer, and Damian Borth.
+\newblock Findiff: Diffusion models for financial tabular data generation.
+\newblock In {\em Proceedings of the Fourth ACM International Conference on AI in Finance}, ICAIF '23, page 64–72, New York, NY, USA, 2023. Association for Computing Machinery.
+
+\bibitem[\protect\citeauthoryear{Vyetrenko \bgroup \em et al.\egroup }{2021}]{stylized_facts}
+Svitlana Vyetrenko, David Byrd, Nick Petosa, Mahmoud Mahfouz, Danial Dervovic, Manuela Veloso, and Tucker Balch.
+\newblock Get real: realism metrics for robust limit order book market simulations.
+\newblock In {\em Proceedings of the First ACM International Conference on AI in Finance}, ICAIF '20, New York, NY, USA, 2021. Association for Computing Machinery.
+
+\bibitem[\protect\citeauthoryear{Wiese \bgroup \em et al.\egroup }{2020}]{wiese2020quant}
+Magnus Wiese, Robert Knobloch, Ralf Korn, and Peter Kretschmer.
+\newblock Quant gans: deep generation of financial time series.
+\newblock {\em Quantitative Finance}, 20(9):1419--1440, 2020.
+
+\end{thebibliography}
