@@ -206,6 +206,7 @@ def diversity_metrics(synthetic: np.ndarray) -> Dict[str, float]:
     samples = synthetic[indices]
     
     # Compute pairwise correlations
+    samples = samples.reshape(len(samples), -1)
     corr_matrix = np.corrcoef(samples)
     upper_tri = corr_matrix[np.triu_indices(n_samples, k=1)]
     
@@ -269,6 +270,36 @@ def compute_all_metrics(
     }
     
     return results
+
+
+def print_stylized_facts_table(sf_results: Dict) -> str:
+    """Print a comparison table of key stylized facts metrics (real vs synthetic)."""
+    real = sf_results.get("real", {})
+    syn  = sf_results.get("synthetic", {})
+
+    rows = [
+        ("Excess Kurtosis",      real.get("fat_tails", {}).get("excess_kurtosis"),
+                                  syn.get("fat_tails",  {}).get("excess_kurtosis")),
+        ("Vol Clustering (ACF₁)", real.get("volatility_clustering", {}).get("acf_squared_lag1"),
+                                   syn.get("volatility_clustering",  {}).get("acf_squared_lag1")),
+        ("Leverage Effect",       real.get("leverage_effect", {}).get("leverage_correlation"),
+                                   syn.get("leverage_effect",  {}).get("leverage_correlation")),
+        ("Tail Index (α)",        real.get("fat_tails", {}).get("tail_index"),
+                                   syn.get("fat_tails",  {}).get("tail_index")),
+    ]
+
+    lines = []
+    lines.append("=" * 52)
+    lines.append("STYLIZED FACTS COMPARISON")
+    lines.append("=" * 52)
+    lines.append(f"{'Metric':<28} {'Real':>10} {'FinDiffusion':>12}")
+    lines.append("-" * 52)
+    for name, r_val, s_val in rows:
+        r_str = f"{r_val:.4f}" if r_val is not None else "N/A"
+        s_str = f"{s_val:.4f}" if s_val is not None else "N/A"
+        lines.append(f"{name:<28} {r_str:>10} {s_str:>12}")
+    lines.append("=" * 52)
+    return "\n".join(lines)
 
 
 def print_metrics_report(metrics: Dict) -> str:

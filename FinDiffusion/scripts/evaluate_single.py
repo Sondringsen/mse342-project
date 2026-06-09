@@ -25,7 +25,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.models import FinancialDiffusion
 from src.data import FinancialDataModule
-from src.evaluation import validate_stylized_facts, compute_all_metrics, print_metrics_report
+from src.evaluation import validate_stylized_facts, compute_all_metrics, print_metrics_report, print_stylized_facts_table
 from src.evaluation.stylized_facts import compare_distributions
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -350,6 +350,9 @@ def main():
 
     # ---- Stylized facts ----
     sf_results = evaluate_stylized_facts(real, synthetic)
+
+    # ---- Stylized facts table ----
+    logger.info("\n" + print_stylized_facts_table(sf_results))
 
     # ---- Metrics ----
     metrics = compute_all_metrics(real, synthetic)
