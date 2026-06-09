@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Generate synthetic financial data using trained model."""
+"""Generate synthetic financial data using a trained FinDiffusion model."""
 
 import argparse
 import logging
@@ -21,34 +21,61 @@ logger = logging.getLogger(__name__)
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Generate synthetic financial data")
-    parser.add_argument("--checkpoint", type=str, required=True, help="Path to model checkpoint")
-    parser.add_argument("--config", type=str, default="configs/default.yaml", help="Config file")
-    parser.add_argument("--n_samples", type=int, default=1000, help="Number of samples")
-    parser.add_argument("--seq_len", type=int, default=None, help="Sequence length (default: from config)")
+    parser = argparse.ArgumentParser(
+        description="Generate synthetic financial data",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument(
+        "--model",
+        type=str,
+        default="ddpm",
+        choices=["ddpm", "ddpm_topo"],
+        help="Model variant — used to resolve default checkpoint and output paths",
+    )
+    parser.add_argument("--checkpoint", type=str, default=None,
+                        help="Path to model checkpoint (default: outputs/{model}/checkpoints/final.pt)")
+    parser.add_argument("--config", type=str, default="configs/default.yaml")
+    parser.add_argument("--n_samples", type=int, default=10000)
     parser.add_argument("--trend", type=float, default=None, help="Target annualized return")
     parser.add_argument("--volatility", type=float, default=None, help="Target annualized volatility")
     parser.add_argument("--regime", type=str, default=None, choices=["bear", "sideways", "bull"])
-    parser.add_argument("--output", type=str, default="outputs/synthetic_returns.csv", help="Output path")
+    parser.add_argument("--output", type=str, default=None,
+                        help="Output CSV path (default: outputs/{model}/synthetic.csv)")
     parser.add_argument("--ddim", action="store_true", help="Use DDIM for faster sampling")
-    parser.add_argument("--ddim_steps", type=int, default=50, help="DDIM steps")
-    parser.add_argument("--seed", type=int, default=None, help="Random seed")
+    parser.add_argument("--ddim_steps", type=int, default=50)
+    parser.add_argument("--seed", type=int, default=None)
     args = parser.parse_args()
+
+    model_dir = Path("outputs") / args.model
+    checkpoint_path = args.checkpoint or str(model_dir / "checkpoints" / "final.pt")
+    output_path = Path(args.output or model_dir / "synthetic.csv")
 
     if args.seed is not None:
         torch.manual_seed(args.seed)
         np.random.seed(args.seed)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    logger.info(f"Using device: {device}")
+    logger.info(f"Device: {device}")
 
-    # Load config
-    with open(args.config, "r") as f:
+    with open(args.config) as f:
         config = yaml.safe_load(f)
 
-    # Load model
-    logger.info(f"Loading model from {args.checkpoint}")
-    checkpoint = torch.load(args.checkpoint, map_location=device)
+    # Load data module for denormalization
+    data_module = FinancialDataModule(
+        tickers=config["data"]["tickers"],
+        start_date=config["data"]["start_date"],
+        end_date=config["data"]["end_date"],
+        seq_len=config["data"]["seq_len"],
+        stride=config["data"]["stride"],
+        train_ratio=config["data"]["train_ratio"],
+        val_ratio=config["data"]["val_ratio"],
+        batch_size=config["evaluation"]["batch_size"],
+        data_dir=config["paths"]["data_dir"],
+    )
+    data_module.setup()
+
+    logger.info(f"Loading model from {checkpoint_path}")
+    checkpoint = torch.load(checkpoint_path, map_location=device)
 
     model = FinancialDiffusion(
         seq_len=config["data"]["seq_len"],
@@ -64,13 +91,12 @@ def main():
         beta_start=config["model"]["beta_start"],
         beta_end=config["model"]["beta_end"],
         prediction_type=config["model"]["prediction_type"],
-        dropout=0.0,  # No dropout at inference
+        dropout=0.0,
     )
     model.load_state_dict(checkpoint["model_state_dict"])
     model.to(device)
     model.eval()
 
-    # Build conditions
     conditions = {}
     if args.trend is not None:
         conditions["trend"] = args.trend
@@ -78,22 +104,16 @@ def main():
         conditions["volatility"] = args.volatility
     if args.regime is not None:
         conditions["regime"] = args.regime
-
     if not conditions:
         conditions = None
         logger.info("Generating unconditional samples")
     else:
         logger.info(f"Generating with conditions: {conditions}")
 
-    # Generate
-    seq_len = args.seq_len or config["data"]["seq_len"]
-    
-    logger.info(f"Generating {args.n_samples} samples of length {seq_len}...")
-    
+    logger.info(f"Generating {args.n_samples} samples...")
     with torch.no_grad():
         samples = model.generate(
             n_samples=args.n_samples,
-            seq_len=seq_len,
             conditions=conditions,
             use_ddim=args.ddim,
             ddim_steps=args.ddim_steps if args.ddim else None,
@@ -101,36 +121,20 @@ def main():
             progress=True,
         )
 
-    samples = samples.cpu().numpy()
+    samples = samples.cpu().numpy()                  # (N, seq_len, 1) or (N, seq_len)
+    samples = data_module.denormalize(samples)
+    if samples.ndim == 3:
+        samples = samples[:, :, 0]                   # (N, seq_len)
 
-    # Load normalizer to denormalize
-    data_state_path = Path(args.checkpoint).parent / "data_state.pt"
-    if data_state_path.exists():
-        data_state = torch.load(data_state_path, map_location="cpu")
-        dm_state = data_state.get("data_module", {})
-        if "mean" in dm_state and "std" in dm_state:
-            samples = samples * dm_state["std"] + dm_state["mean"]
-            logger.info(f"Denormalized samples (mean={dm_state['mean']:.6f}, std={dm_state['std']:.6f})")
-        else:
-            logger.warning("No mean/std found in data_state.pt — samples remain in normalized space")
-
-    # Save
-    output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    df = pd.DataFrame(samples)
-    df.columns = [f"t_{i}" for i in range(samples.shape[1])]
-    df.index.name = "sample_id"
-    df.to_csv(output_path)
+    cols = [f"r_{i}" for i in range(samples.shape[1])]
+    pd.DataFrame(samples.astype(np.float32), columns=cols).to_csv(output_path, index=False)
 
     logger.info(f"Saved {args.n_samples} samples to {output_path}")
-
-    # Print summary statistics
-    logger.info("\nSummary Statistics:")
-    logger.info(f"  Mean daily return: {samples.mean():.6f}")
-    logger.info(f"  Std daily return: {samples.std():.6f}")
-    logger.info(f"  Annualized return: {samples.mean() * 252:.2%}")
-    logger.info(f"  Annualized volatility: {samples.std() * np.sqrt(252):.2%}")
+    logger.info(f"  Mean daily return:      {samples.mean():.6f}")
+    logger.info(f"  Std  daily return:      {samples.std():.6f}")
+    logger.info(f"  Annualized return:      {samples.mean() * 252:.2%}")
+    logger.info(f"  Annualized volatility:  {samples.std() * np.sqrt(252):.2%}")
 
 
 if __name__ == "__main__":

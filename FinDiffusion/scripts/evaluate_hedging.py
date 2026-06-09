@@ -99,16 +99,34 @@ def main():
         description="Evaluate deep hedging model on real data",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument("--model",      type=str, required=True, help="Path to hedging_model.pt")
+    parser.add_argument(
+        "--model",
+        type=str,
+        required=True,
+        choices=["ddpm", "ddpm_topo", "real"],
+        help="Model variant — used to resolve default hedger and output paths",
+    )
+    parser.add_argument(
+        "--hedger",
+        type=str,
+        default=None,
+        help="Path to hedging_model.pt (default: outputs/{model}/hedging/hedging_model.pt)",
+    )
     parser.add_argument("--config",     type=str, default="configs/default.yaml")
     parser.add_argument("--n_samples",  type=int, default=500,  help="Real test paths to evaluate on")
     parser.add_argument("--hidden_dim", type=int, default=64)
     parser.add_argument("--cvar_alpha", type=float, default=0.95)
-    parser.add_argument("--output_dir", type=str, default="outputs/hedging_eval")
+    parser.add_argument(
+        "--output_dir",
+        type=str,
+        default=None,
+        help="Output directory (default: outputs/{model}/hedging_eval/)",
+    )
     args = parser.parse_args()
 
+    hedger_path = args.hedger or f"outputs/{args.model}/hedging/hedging_model.pt"
     device = torch.device("cpu")
-    output_dir = Path(args.output_dir)
+    output_dir = Path(args.output_dir or f"outputs/{args.model}/hedging_eval")
     output_dir.mkdir(parents=True, exist_ok=True)
 
     strike = S0 * OTM_FACTOR
@@ -116,10 +134,10 @@ def main():
 
     # --- Load hedging model ---
     hedger = DeepHedger(input_dim=2, hidden_dim=args.hidden_dim)
-    ckpt = torch.load(args.model, map_location=device)
+    ckpt = torch.load(hedger_path, map_location=device)
     hedger.load_state_dict(ckpt["model_state_dict"])
     hedger.eval()
-    logger.info(f"Loaded hedging model from {args.model}")
+    logger.info(f"Loaded hedging model from {hedger_path}")
 
     # --- Load real test data ---
     logger.info("Loading real test data ...")

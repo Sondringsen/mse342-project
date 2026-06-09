@@ -45,6 +45,13 @@ def load_config(config_path: str) -> dict:
 def main():
     parser = argparse.ArgumentParser(description="Train FinDiffusion model")
     parser.add_argument(
+        "--model",
+        type=str,
+        default="ddpm",
+        choices=["ddpm", "ddpm_topo"],
+        help="Model variant — determines output directory (outputs/{model}/checkpoints/)",
+    )
+    parser.add_argument(
         "--config",
         type=str,
         default="configs/default.yaml",
@@ -83,6 +90,9 @@ def main():
     # Load config
     logger.info(f"Loading config from {args.config}")
     config = load_config(args.config)
+
+    # Route outputs under outputs/{model}/
+    config["paths"]["checkpoint_dir"] = str(Path("outputs") / args.model / "checkpoints")
 
     # Override with command line args
     if args.gpus is not None:
