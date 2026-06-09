@@ -46,8 +46,8 @@ def load_synthetic_csv(path: str) -> np.ndarray:
     return data
 
 
-def load_real_train(config_path: str, n_samples: int) -> np.ndarray:
-    """Load log-return windows from the real training split.
+def load_real_train(config_path: str) -> np.ndarray:
+    """Load all log-return windows from the real training split.
 
     Returns: (N, seq_len) float32 array.
     """
@@ -68,9 +68,7 @@ def load_real_train(config_path: str, n_samples: int) -> np.ndarray:
     dm.setup()
 
     ds = dm.train_dataset
-    n = min(n_samples, len(ds))
-    idx = np.random.choice(len(ds), n, replace=False)
-    raw = np.array([ds[i].numpy() for i in idx])    # (N, seq_len, 1)
+    raw = np.array([ds[i].numpy() for i in range(len(ds))])  # (N, seq_len, 1)
     raw = dm.denormalize(raw)
     if raw.ndim == 3:
         raw = raw[:, :, 0]
@@ -131,7 +129,7 @@ def main():
 
     # --- Load training data ---
     if args.model == "real":
-        log_returns = load_real_train(args.config, args.n_samples)
+        log_returns = load_real_train(args.config)
     else:
         data_path = args.data or str(model_dir / "synthetic.csv")
         log_returns = load_synthetic_csv(data_path)

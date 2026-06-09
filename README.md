@@ -118,14 +118,6 @@ cd FinDiffusion
 python scripts/generate.py --model ddpm --config configs/default.yaml --n_samples 10000 --ddim
 ```
 
-Optional conditioning:
-
-```bash
-python scripts/generate.py \
-  --model ddpm \
-  --trend 0.1 --volatility 0.2 --regime bull
-```
-
 Add `--ddim` / `--ddim_steps INT` for faster sampling. Saves to
 `outputs/{model}/synthetic.csv`.
 
@@ -137,26 +129,25 @@ On synthetic data (ddpm or ddpm_topo):
 cd FinDiffusion
 python scripts/train_hedging.py \
   --model ddpm \
-  --n_epochs 100
+  --n_epochs 1000
 ```
 
 `--data PATH` overrides the default CSV path (`outputs/{model}/synthetic.csv`).
 
-On real r_train data (baseline — no synthetic data):
+On real r_train data (baseline — no synthetic data, uses all training windows):
 
 ```bash
 python scripts/train_hedging.py \
   --model real \
   --config configs/default.yaml \
-  --n_samples 10000 \
-  --n_epochs 100
+  --n_epochs 1000
 ```
 
 Saves weights to `outputs/{model}/hedging/hedging_model.pt`.
 
 ### 5.1 Evaluate diffusion model quality (single condition)
 
-Load the pre-generated CSV from the pipeline (no recomputation):
+Load the pre-generated CSV from the pipeline. Real test data is loaded automatically from `data/` via the config:
 
 ```bash
 cd FinDiffusion
@@ -165,12 +156,11 @@ python scripts/evaluate_single.py \
   --output_dir outputs/ddpm/evaluation_single
 ```
 
-If you need to generate data for a specific condition first:
+To generate a separate batch for evaluation first:
 
 ```bash
 python scripts/generate.py \
   --model ddpm \
-  --trend 0.1 --volatility 0.2 --regime sideways \
   --n_samples 1000 --ddim \
   --output outputs/ddpm/evaluation_single/synthetic.csv
 

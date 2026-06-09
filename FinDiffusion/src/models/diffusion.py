@@ -447,48 +447,17 @@ class FinancialDiffusion(nn.Module):
             prediction_type=prediction_type,
         )
 
-    def forward(
-        self,
-        x: torch.Tensor,
-        trend: Optional[torch.Tensor] = None,
-        volatility: Optional[torch.Tensor] = None,
-        regime: Optional[torch.Tensor] = None,
-        drop_cond_prob: float = 0.1,
-    ) -> Dict[str, torch.Tensor]:
+    def forward(self, x: torch.Tensor) -> Dict[str, torch.Tensor]:
         """
-        Training forward pass.
-        
+        Training forward pass (unconditional).
+
         Args:
             x: Clean returns of shape (B, T) or (B, T, 1)
-            trend: Optional trend condition
-            volatility: Optional volatility condition
-            regime: Optional regime condition
-            drop_cond_prob: Probability of dropping conditions (CFG)
-        
+
         Returns:
             Dict with 'loss'
         """
-        # Extract conditions from data if not provided
-        if trend is None or volatility is None or regime is None:
-            x_2d = x.squeeze(-1) if x.dim() == 3 else x
-            extracted = self.condition_extractor.extract(x_2d)
-            if trend is None:
-                trend = extracted["trend"]
-            if volatility is None:
-                volatility = extracted["volatility"]
-            if regime is None:
-                regime = extracted["regime"]
-
-        # Encode conditions
-        cond = self.condition_encoder(
-            trend=trend,
-            volatility=volatility,
-            regime=regime,
-            drop_cond_prob=drop_cond_prob,
-        )
-
-        # Compute diffusion loss
-        return self.diffusion.training_loss(x, cond)
+        return self.diffusion.training_loss(x, cond=None)
 
     @torch.no_grad()
     def generate(

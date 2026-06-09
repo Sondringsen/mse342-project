@@ -172,22 +172,22 @@ class Trainer:
             
             if self.config.use_amp:
                 with autocast():
-                    outputs = self.model(x, drop_cond_prob=self.config.drop_cond_prob)
+                    outputs = self.model(x)
                     loss = outputs["loss"]
-                
+
                 self.scaler.scale(loss).backward()
-                
+
                 # Gradient clipping
                 if self.config.clip_grad_norm > 0:
                     self.scaler.unscale_(self.optimizer)
                     torch.nn.utils.clip_grad_norm_(
                         self.model.parameters(), self.config.clip_grad_norm
                     )
-                
+
                 self.scaler.step(self.optimizer)
                 self.scaler.update()
             else:
-                outputs = self.model(x, drop_cond_prob=self.config.drop_cond_prob)
+                outputs = self.model(x)
                 loss = outputs["loss"]
                 loss.backward()
                 
@@ -237,10 +237,10 @@ class Trainer:
             
             if self.config.use_amp:
                 with autocast():
-                    outputs = self.model(x, drop_cond_prob=0.0)
+                    outputs = self.model(x)
                     loss = outputs["loss"]
             else:
-                outputs = self.model(x, drop_cond_prob=0.0)
+                outputs = self.model(x)
                 loss = outputs["loss"]
             
             total_loss += loss.item()

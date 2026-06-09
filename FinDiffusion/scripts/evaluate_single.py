@@ -74,6 +74,7 @@ def load_model_and_data(checkpoint_path: str, config_path: str, device: torch.de
         data_dir=config["paths"]["data_dir"],
     )
     data_module.setup()
+    _restore_norm_stats(data_module, Path(checkpoint_path).parent)
 
     return model, data_module, config
 
@@ -82,16 +83,21 @@ def load_model_and_data(checkpoint_path: str, config_path: str, device: torch.de
 def generate_samples(
     model: FinancialDiffusion,
     n_samples: int,
-    trend: float,
-    vol: float,
-    regime: str,
+    trend: float | None,
+    vol: float | None,
+    regime: str | None,
     device: torch.device,
     use_ddim: bool,
 ) -> np.ndarray:
-    logger.info(f"Generating {n_samples} samples (trend={trend:.2%}, vol={vol:.2%}, regime={regime})…")
+    if trend is None and vol is None and regime is None:
+        logger.info(f"Generating {n_samples} samples unconditionally…")
+        conditions = None
+    else:
+        logger.info(f"Generating {n_samples} samples (trend={trend:.2%}, vol={vol:.2%}, regime={regime})…")
+        conditions = {"trend": trend, "volatility": vol, "regime": regime}
     samples = model.generate(
         n_samples=n_samples,
-        conditions={"trend": trend, "volatility": vol, "regime": regime},
+        conditions=conditions,
         use_ddim=use_ddim,
         ddim_steps=50 if use_ddim else None,
         device=device,
@@ -118,32 +124,55 @@ def _squeeze(arr: np.ndarray) -> np.ndarray:
     return arr.reshape(arr.shape[0], -1)
 
 
-def save_data(synthetic: np.ndarray, real: np.ndarray, output_dir: Path):
+def _restore_norm_stats(data_module: FinancialDataModule, checkpoint_dir: Path):
+    data_state_path = checkpoint_dir / "data_state.pt"
+    if data_state_path.exists():
+        state = torch.load(data_state_path, map_location="cpu")
+        data_module.load_state_dict(state["data_module"])
+        logger.info(
+            f"Restored normalization stats from {data_state_path} "
+            f"(mean={data_module.mean:.6f}, std={data_module.std:.6f})"
+        )
+    else:
+        logger.warning(
+            f"data_state.pt not found in {checkpoint_dir} — "
+            "using freshly computed normalization stats; scale may differ from training"
+        )
+
+
+def setup_data_module(config_path: str, checkpoint_dir: Path = None) -> FinancialDataModule:
+    with open(config_path) as f:
+        config = yaml.safe_load(f)
+    dm = FinancialDataModule(
+        tickers=config["data"]["tickers"],
+        start_date=config["data"]["start_date"],
+        end_date=config["data"]["end_date"],
+        seq_len=config["data"]["seq_len"],
+        stride=config["data"]["stride"],
+        train_ratio=config["data"]["train_ratio"],
+        val_ratio=config["data"]["val_ratio"],
+        batch_size=config["evaluation"]["batch_size"],
+        data_dir=config["paths"]["data_dir"],
+    )
+    dm.setup()
+    if checkpoint_dir is not None:
+        _restore_norm_stats(dm, checkpoint_dir)
+    return dm
+
+
+def save_data(synthetic: np.ndarray, output_dir: Path):
     output_dir.mkdir(parents=True, exist_ok=True)
     syn_2d = _squeeze(synthetic)
-    real_2d = _squeeze(real)
     cols = [f"r_{i}" for i in range(syn_2d.shape[1])]
     pd.DataFrame(syn_2d, columns=cols).to_csv(output_dir / "synthetic.csv", index=False)
-    pd.DataFrame(real_2d, columns=cols).to_csv(output_dir / "real.csv", index=False)
-    logger.info(f"Saved synthetic.csv ({len(syn_2d)} rows) and real.csv ({len(real_2d)} rows) to {output_dir}")
+    logger.info(f"Saved synthetic.csv ({len(syn_2d)} rows) to {output_dir}")
 
 
-def load_data(data_path: str):
-    """Load synthetic.csv and, if present, real.csv from the same directory."""
-    data_path = Path(data_path)
+def load_synthetic(data_path: str) -> np.ndarray:
     syn_2d = pd.read_csv(data_path).values.astype(np.float32)
     synthetic = syn_2d[:, :, np.newaxis]
-
-    real_path = data_path.parent / "real.csv"
-    if real_path.exists():
-        real_2d = pd.read_csv(real_path).values.astype(np.float32)
-        real = real_2d[:, :, np.newaxis]
-        logger.info(f"Loaded {len(synthetic)} synthetic and {len(real)} real samples from {data_path.parent}")
-    else:
-        logger.warning(f"real.csv not found next to {data_path}; real data unavailable for comparison")
-        real = synthetic
-
-    return synthetic, real
+    logger.info(f"Loaded {len(synthetic)} synthetic samples from {data_path}")
+    return synthetic
 
 
 # ---------------------------------------------------------------------------
@@ -199,7 +228,9 @@ def create_visualizations(
     axes[0].set_ylabel("Density")
     axes[0].set_title(f"Return Distribution{cond_label}")
     axes[0].legend()
-    axes[0].set_xlim(-0.1, 0.1)
+    clip = max(abs(np.percentile(R.flatten(), 1)), abs(np.percentile(R.flatten(), 99)),
+               abs(np.percentile(S.flatten(), 1)), abs(np.percentile(S.flatten(), 99))) * 1.5
+    axes[0].set_xlim(-clip, clip)
 
     real_sorted = np.sort(R.flatten())
     syn_sorted = np.sort(S.flatten())
@@ -309,13 +340,14 @@ def main():
                       help="Path to synthetic.csv (skips generation)")
 
     parser.add_argument("--config", type=str, default="configs/default.yaml",
-                        help="Config file (required with --checkpoint)")
-    parser.add_argument("--trend", type=float, default=0.1,
-                        help="Target annualized trend (e.g. 0.1 = 10%%)")
-    parser.add_argument("--vol", type=float, default=0.2,
-                        help="Target annualized volatility (e.g. 0.2 = 20%%)")
-    parser.add_argument("--regime", type=str, default="sideways",
-                        choices=["bull", "bear", "sideways"])
+                        help="Config file — used to load real test data in both modes")
+    parser.add_argument("--trend", type=float, default=None,
+                        help="Target annualized trend (e.g. 0.1 = 10%%). Omit for unconditional generation.")
+    parser.add_argument("--vol", type=float, default=None,
+                        help="Target annualized volatility (e.g. 0.2 = 20%%). Omit for unconditional generation.")
+    parser.add_argument("--regime", type=str, default=None,
+                        choices=["bull", "bear", "sideways"],
+                        help="Market regime. Omit for unconditional generation.")
     parser.add_argument("--n_samples", type=int, default=1000)
     parser.add_argument("--n_paths", type=int, default=7,
                         help="How many paths to show in generated_paths.png")
@@ -334,19 +366,31 @@ def main():
 
         model, data_module, _ = load_model_and_data(args.checkpoint, args.config, device)
 
-        real = get_real_samples(data_module, args.n_samples)
-        logger.info(f"Real samples: {len(real)}")
-
         synthetic = generate_samples(
             model, args.n_samples, args.trend, args.vol, args.regime, device, args.ddim
         )
         synthetic = data_module.denormalize(synthetic)
         logger.info(f"Synthetic samples: {len(synthetic)}")
 
-        save_data(synthetic, real, output_dir)
+        save_data(synthetic, output_dir)
 
     else:
-        synthetic, real = load_data(args.data)
+        synthetic = load_synthetic(args.data)
+        data_dir = Path(args.data).parent
+        data_module = setup_data_module(args.config, checkpoint_dir=data_dir)
+
+    real = get_real_samples(data_module, len(synthetic))
+    logger.info(f"Real samples: {len(real)}")
+    r_flat = _squeeze(real).flatten()
+    logger.info(f"  Mean daily return (real): {r_flat.mean():.6f}")
+    logger.info(f"  Std  daily return (real): {r_flat.std():.6f}")
+    logger.info(f"  Annualized return  (real): {r_flat.mean() * 252:.2%}")
+    logger.info(f"  Annualized vol     (real): {r_flat.std() * np.sqrt(252):.2%}")
+    s_flat = _squeeze(synthetic).flatten()
+    logger.info(f"  Mean daily return (synthetic): {s_flat.mean():.6f}")
+    logger.info(f"  Std  daily return (synthetic): {s_flat.std():.6f}")
+    logger.info(f"  Annualized return  (synthetic): {s_flat.mean() * 252:.2%}")
+    logger.info(f"  Annualized vol     (synthetic): {s_flat.std() * np.sqrt(252):.2%}")
 
     # ---- Stylized facts ----
     sf_results = evaluate_stylized_facts(real, synthetic)

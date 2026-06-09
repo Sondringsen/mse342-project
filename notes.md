@@ -1,6 +1,5 @@
 # What remains
 - Implement a way to easily turn on and off topological loss
-- Implement hedging model that
 - Run experiments
 - Can we run on gpu on cluster
 
@@ -12,34 +11,38 @@
 
 ## Introduction
 - Overview of synthetic financial data generation
-- Diffusion models for time series generation 
-- Define stylized facts
-- Need to test on downstream task (find reference)
+- Diffusion models for time series generation (Hoetal2020)
+- Define stylized facts (Cont2001)
+- Need to test on downstream task (theis2016noteevaluationgenerativemodels)
 - Deep hedging models have been popularized and need more data than what is readily available from real data. This motivates the use of synthetic data. 
-- TDA in finance. We do this because it has been shown to predict crashes etc. It is therefore nice to include. The gain from this might not show up test sets where the market is in a 'normal' state.
+- TDA in finance. We do this because it has been shown to predict crashes etc. (GIDEA2018820) It is therefore nice to test whether this helps in synthtetic data generation. The gain from this might not show up test sets where the market is in a 'normal' state.
 - Test on real data
 - Include references for all of the above
 
 ## Method
 ### DDPM
-- Follow the setup of the CoFinDiff Paper
+- Follow the setup of the CoFinDiff Paper (tanaka2025cofindiffcontrollablefinancialdiffusion)
 - We use open source code from https://github.com/EmmanuelleB985/FinDiffusion (include as footnote). This is not the authors' code, but implemented by Oxford researchers. They don't use the Haar Wavelet, so that is the only difference.
 - We generate in return space
 - We generate 252 (1-year) sequences of price data
+- They also have a way to generate conditional data, we want to generate unconditional data. Conditioning can be useful if you have some view of the market you want to incorporate.
 
-### TDA
+### TDA 
+- We closely follow the setup in (GIDEA2018820)
 - Point clouds
 - Vietoris ripz complex (can use cech complex, but it's more computationally expensive)
 - Betti numbers
-- Persistence diagrams - how to make them differentiable
+- Persistence diagrams 
+- Stability theorem
+- How to make them differentiable - persistence landscape (bubenik2015)
 - Topological loss
 
-### Stylized facts and visualization
+### Stylized facts and visualization (Cont2001)
 - We evaluate the generated data on stylized facts. This is more of a sanity check than a final evaluation. At the end of the day we care about how useful the data is for downstream tasks (reference). 
 - Stylized facts considered: kurtosis, vol clustering, leverage effect, 
 - We also plot the data for a quick sanity check. 
 
-### Hedging model
+### Hedging model (Buehler2019)
 - Follow the setup in the CoFinDiff paper:
 - Five-layer peceptron with layernorms and ReLU activations. 
 - European call with 30 day ttl (they used 300 minutes in the cofindiff paper, refer to data section where the data deviation is discussed in more detail)
@@ -71,3 +74,8 @@
 
 ## Appendix
 - Table of all stocks considered
+
+
+# Plan today
+
+- Fix the cluster. Start a job
