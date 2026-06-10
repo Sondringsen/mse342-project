@@ -28,7 +28,7 @@ LOGGER = logging.getLogger("comparison_pipeline")
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Compare FinDiffusion-style and CSDI-style one-step diffusion forecasters",
+        description="Compare FinDiffusion-style and CSDI-style diffusion forecasters",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument("--config", type=Path, default=Path("FinDiffusion_CSDI_Pipeline/config.yaml"))
@@ -38,6 +38,12 @@ def main() -> None:
     parser.add_argument("--no-download", action="store_true", help="Require cached CSV data")
     parser.add_argument("--eval-only", action="store_true", help="Skip training and load final checkpoints")
     parser.add_argument("--epochs", type=int, default=None, help="Override training.epochs")
+    parser.add_argument(
+        "--prediction-length",
+        type=int,
+        default=None,
+        help="Override data.prediction_length",
+    )
     parser.add_argument("--batch-size", type=int, default=None, help="Override training.batch_size")
     parser.add_argument("--num-workers", type=int, default=None, help="Override training.num_workers")
     parser.add_argument("--n-samples", type=int, default=None, help="Override sampling.n_samples")
@@ -77,7 +83,7 @@ def main() -> None:
     device = resolve_device()
     LOGGER.info("Using device: %s", device)
 
-    run_name = args.run_name or dt.datetime.now().strftime("one_step_%Y%m%d_%H%M%S")
+    run_name = args.run_name or dt.datetime.now().strftime("horizon_%Y%m%d_%H%M%S")
     output_root = Path(config["paths"]["output_dir"]) / run_name
     output_root.mkdir(parents=True, exist_ok=True)
     with (output_root / "run_config.yaml").open("w") as f:
@@ -131,6 +137,7 @@ def apply_debug_overrides(config: dict) -> None:
 
 def apply_runtime_overrides(config: dict, args: argparse.Namespace) -> None:
     overrides = {
+        ("data", "prediction_length"): args.prediction_length,
         ("training", "epochs"): args.epochs,
         ("training", "batch_size"): args.batch_size,
         ("training", "num_workers"): args.num_workers,

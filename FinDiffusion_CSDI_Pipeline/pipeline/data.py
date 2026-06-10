@@ -1,4 +1,4 @@
-"""Data utilities for one-step return forecasting."""
+"""Data utilities for rolling return-horizon forecasting."""
 
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Tuple

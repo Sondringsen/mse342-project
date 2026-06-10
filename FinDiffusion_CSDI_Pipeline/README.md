@@ -1,21 +1,21 @@
-# FinDiffusion vs CSDI One-Step Pipeline
+# FinDiffusion vs CSDI Horizon Pipeline
 
 This folder is a clean comparison pipeline for the project models using the same
 market universe and result analysis style as `FinDiffusion/`.
 
-The main change from `CSDI_Experiment/` is that this is a one-step forecasting
+The main change from `CSDI_Experiment/` is that this is a rolling forecasting
 setup:
 
 - data defaults match `FinDiffusion/configs/default.yaml` ticker/date choices,
 - each asset is treated as a univariate return series,
-- each sample observes a 252-day history and predicts the next trading day,
+- each sample observes a 252-day history and predicts a configurable future horizon,
 - both model variants train by predicting diffusion noise epsilon,
 - evaluation uses the FinDiffusion metrics and stylized-facts analysis for both
   real test returns and generated return paths.
 
 The `csdi` model in this folder is a local CSDI-style masked diffusion forecaster:
-it keeps the observed history fixed, masks the future day, and computes diffusion
-loss only on the masked target. It does not depend on the older `CSDI_Experiment`
+it keeps the observed history fixed, masks the future horizon, and computes diffusion
+loss only on the masked targets. It does not depend on the older `CSDI_Experiment`
 code path.
 
 ## Run
@@ -61,14 +61,14 @@ both finish. A five-GPU node has enough room for both jobs at once; this
 comparison only needs two GPUs because there are two model variants.
 
 ```bash
-RUN_NAME=one_step_compare bash FinDiffusion_CSDI_Pipeline/scripts/run_cluster.sh --debug
+RUN_NAME=horizon_debug bash FinDiffusion_CSDI_Pipeline/scripts/run_cluster.sh --debug
 ```
 
 For a tuned cluster run that uses multiple GPUs and avoids the slow 1000-step
 evaluation sampler:
 
 ```bash
-RUN_NAME=one_step_compare GPUS_PER_MODEL=2 \
+RUN_NAME=horizon_compare GPUS_PER_MODEL=2 \
   bash FinDiffusion_CSDI_Pipeline/scripts/run_cluster.sh \
   --no-download --batch-size 512 --eval-batch-size 16 --num-workers 4 --ddim
 ```
@@ -83,6 +83,25 @@ window expands to `n_samples` generated paths. The default evaluation volume is
 `--n-samples` or `--max-eval-windows-per-asset` for a heavier final analysis.
 On 16-CPU nodes, `--num-workers 4` per model is a reasonable starting point when
 both models run on the same node.
+
+Horizon sweep for volatility-clustering experiments:
+
+```bash
+RUN_NAME=horizon_5d GPUS_PER_MODEL=2 \
+  bash FinDiffusion_CSDI_Pipeline/scripts/run_cluster.sh \
+  --prediction-length 5 --no-download --batch-size 512 --eval-batch-size 16 \
+  --num-workers 4 --ddim
+
+RUN_NAME=horizon_10d GPUS_PER_MODEL=2 \
+  bash FinDiffusion_CSDI_Pipeline/scripts/run_cluster.sh \
+  --prediction-length 10 --no-download --batch-size 512 --eval-batch-size 16 \
+  --num-workers 4 --ddim
+
+RUN_NAME=horizon_20d GPUS_PER_MODEL=2 \
+  bash FinDiffusion_CSDI_Pipeline/scripts/run_cluster.sh \
+  --prediction-length 20 --no-download --batch-size 512 --eval-batch-size 16 \
+  --num-workers 4 --ddim
+```
 
 ## Outputs
 
@@ -142,7 +161,6 @@ The plot set includes explicit generated daily return time-series plots:
 
 ## Configuration
 
-Edit `config.yaml` to change history length, stride, tickers, training epochs,
-model size, or sample count. Defaults intentionally mirror the FinDiffusion data
-setup while changing the task from 252-day unconditional generation to one-day
-conditional forecasting.
+Edit `config.yaml` to change history length, prediction length, stride, tickers,
+training epochs, model size, or sample count. You can also override the horizon
+at runtime with `--prediction-length`.

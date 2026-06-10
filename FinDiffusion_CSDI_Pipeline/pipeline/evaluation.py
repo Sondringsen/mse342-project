@@ -1,4 +1,4 @@
-"""FinDiffusion-style evaluation for one-step forecasts."""
+"""FinDiffusion-style evaluation for horizon forecasts."""
 
 import json
 import os
@@ -82,24 +82,31 @@ def generate_prediction_frame(
 
         for local_idx, ex in enumerate(examples):
             asset_index = int(ex["asset_index"])
-            target_index = int(ex["target_index"])
-            ticker, date = dataset.metadata(asset_index, target_index)
-            sample_values = samples_np[local_idx, :, 0, 0]
-            row = {
-                "ticker": ticker,
-                "target_date": date,
-                "target_index": target_index,
-                "actual": float(target_raw[local_idx, 0, 0]),
-                "pred_mean": float(sample_values.mean()),
-                "pred_median": float(np.median(sample_values)),
-                "pred_q05": float(np.quantile(sample_values, 0.05)),
-                "pred_q25": float(np.quantile(sample_values, 0.25)),
-                "pred_q75": float(np.quantile(sample_values, 0.75)),
-                "pred_q95": float(np.quantile(sample_values, 0.95)),
-            }
-            for sample_idx, value in enumerate(sample_values):
-                row[f"sample_{sample_idx:03d}"] = float(value)
-            rows.append(row)
+            forecast_start_index = int(ex["target_index"])
+            _ticker, forecast_start_date = dataset.metadata(asset_index, forecast_start_index)
+            for horizon_offset in range(dataset.prediction_length):
+                target_index = forecast_start_index + horizon_offset
+                ticker, date = dataset.metadata(asset_index, target_index)
+                sample_values = samples_np[local_idx, :, horizon_offset, 0]
+                row = {
+                    "ticker": ticker,
+                    "forecast_start_date": forecast_start_date,
+                    "forecast_start_index": forecast_start_index,
+                    "target_date": date,
+                    "target_index": target_index,
+                    "horizon_step": horizon_offset + 1,
+                    "window_start_index": int(ex["start_index"]),
+                    "actual": float(target_raw[local_idx, horizon_offset, 0]),
+                    "pred_mean": float(sample_values.mean()),
+                    "pred_median": float(np.median(sample_values)),
+                    "pred_q05": float(np.quantile(sample_values, 0.05)),
+                    "pred_q25": float(np.quantile(sample_values, 0.25)),
+                    "pred_q75": float(np.quantile(sample_values, 0.75)),
+                    "pred_q95": float(np.quantile(sample_values, 0.95)),
+                }
+                for sample_idx, value in enumerate(sample_values):
+                    row[f"sample_{sample_idx:03d}"] = float(value)
+                rows.append(row)
 
     return pd.DataFrame(rows)
 
@@ -109,17 +116,32 @@ def select_eval_indices(dataset: OneStepReturnDataset, max_windows_per_asset: Op
     for idx, (asset_idx, _start) in enumerate(dataset.samples):
         by_asset.setdefault(asset_idx, []).append(idx)
 
+    horizon = max(1, int(getattr(dataset, "prediction_length", 1)))
     selected = []  # type: List[int]
     for asset_indices in by_asset.values():
-        asset_indices = sorted(asset_indices, key=lambda i: int(dataset[i]["target_index"]))
-        if max_windows_per_asset is not None and len(asset_indices) > max_windows_per_asset:
-            asset_indices = asset_indices[-max_windows_per_asset:]
-        selected.extend(asset_indices)
+        asset_indices = sorted(
+            asset_indices,
+            key=lambda i: int(dataset.samples[i][1]) + int(dataset.history_length),
+        )
+        selected_for_asset = []  # type: List[int]
+        last_target_index = None  # type: Optional[int]
+        for idx in reversed(asset_indices):
+            target_index = int(dataset.samples[idx][1]) + int(dataset.history_length)
+            if last_target_index is not None and target_index > last_target_index - horizon:
+                continue
+            selected_for_asset.append(idx)
+            last_target_index = target_index
+            if max_windows_per_asset is not None and len(selected_for_asset) >= max_windows_per_asset:
+                break
+        selected.extend(reversed(selected_for_asset))
     return selected
 
 
 def paths_from_predictions(predictions: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray]:
     sample_cols = [c for c in predictions.columns if c.startswith("sample_")]
+    if "forecast_start_index" in predictions.columns and "horizon_step" in predictions.columns:
+        return horizon_paths_from_predictions(predictions, sample_cols)
+
     real_paths = []
     synthetic_paths = []
     for ticker, ticker_df in predictions.groupby("ticker", sort=True):
@@ -127,10 +149,53 @@ def paths_from_predictions(predictions: pd.DataFrame) -> Tuple[np.ndarray, np.nd
         real_paths.append(ticker_df["actual"].to_numpy(np.float32))
         for col in sample_cols:
             synthetic_paths.append(ticker_df[col].to_numpy(np.float32))
-    return np.asarray(real_paths, dtype=np.float32), np.asarray(synthetic_paths, dtype=np.float32)
+    return stack_paths(real_paths), stack_paths(synthetic_paths)
 
 
-def forecast_metrics(predictions: pd.DataFrame) -> Dict[str, float]:
+def horizon_paths_from_predictions(
+    predictions: pd.DataFrame,
+    sample_cols: List[str],
+) -> Tuple[np.ndarray, np.ndarray]:
+    real_paths = []
+    synthetic_paths = []
+    for _ticker, ticker_df in predictions.groupby("ticker", sort=True):
+        real_values = []
+        synthetic_values = {col: [] for col in sample_cols}
+        for _forecast_index, block in ticker_df.groupby("forecast_start_index", sort=True):
+            block = block.sort_values("horizon_step")
+            real_values.extend(block["actual"].to_numpy(np.float32).tolist())
+            for col in sample_cols:
+                synthetic_values[col].extend(block[col].to_numpy(np.float32).tolist())
+        if real_values:
+            real_paths.append(np.asarray(real_values, dtype=np.float32))
+        for col in sample_cols:
+            if synthetic_values[col]:
+                synthetic_paths.append(np.asarray(synthetic_values[col], dtype=np.float32))
+    return stack_paths(real_paths), stack_paths(synthetic_paths)
+
+
+def stack_paths(paths: List[np.ndarray]) -> np.ndarray:
+    if not paths:
+        return np.empty((0, 0), dtype=np.float32)
+    min_length = min(len(path) for path in paths)
+    if min_length <= 0:
+        return np.empty((len(paths), 0), dtype=np.float32)
+    return np.asarray([path[-min_length:] for path in paths], dtype=np.float32)
+
+
+def forecast_metrics(predictions: pd.DataFrame) -> Dict:
+    metrics = forecast_metric_block(predictions)
+    if "horizon_step" in predictions.columns:
+        metrics["horizon_count"] = int(predictions["horizon_step"].nunique())
+        metrics["max_horizon"] = int(predictions["horizon_step"].max())
+        metrics["by_horizon"] = {
+            f"step_{int(horizon):02d}": forecast_metric_block(group)
+            for horizon, group in predictions.groupby("horizon_step", sort=True)
+        }
+    return metrics
+
+
+def forecast_metric_block(predictions: pd.DataFrame) -> Dict[str, float]:
     actual = predictions["actual"].to_numpy(float)
     median = predictions["pred_median"].to_numpy(float)
     mean = predictions["pred_mean"].to_numpy(float)
@@ -246,7 +311,7 @@ def create_path_plot(real: np.ndarray, synthetic: np.ndarray, path: Path, model_
     for i in range(n_pairs):
         axes[i, 0].plot(np.exp(np.cumsum(real[i])), label="Real", alpha=0.8)
         axes[i, 0].plot(np.exp(np.cumsum(synthetic[i])), label=model_name, alpha=0.8)
-        axes[i, 0].set_title(f"One-Step Rolled Path {i + 1}")
+        axes[i, 0].set_title(f"Generated Path {i + 1}")
         axes[i, 0].set_xlabel("Forecast step")
         axes[i, 0].set_ylabel("Cumulative growth")
         axes[i, 0].legend()

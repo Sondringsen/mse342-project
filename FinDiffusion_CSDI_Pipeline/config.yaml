@@ -1,4 +1,4 @@
-# One-step comparison pipeline.
+# Horizon comparison pipeline.
 # Data defaults mirror FinDiffusion/configs/default.yaml.
 
 data:

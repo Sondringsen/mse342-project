@@ -9,12 +9,14 @@ PARTITION="${PARTITION:-gpu-turing}"
 RUN_NAME="${RUN_NAME:-cluster_$(date +%Y%m%d_%H%M%S)}"
 MODELS="${MODELS:-findiffusion csdi}"
 GPUS_PER_MODEL="${GPUS_PER_MODEL:-1}"
+CPUS_PER_MODEL="${CPUS_PER_MODEL:-8}"
 LOG_DIR="${PROJECT_ROOT}/FinDiffusion_CSDI_Pipeline/outputs/${RUN_NAME}/logs"
 mkdir -p "${LOG_DIR}"
 
 echo "Run name: ${RUN_NAME}"
 echo "Models: ${MODELS}"
 echo "GPUs per model: ${GPUS_PER_MODEL}"
+echo "CPUs per model: ${CPUS_PER_MODEL}"
 echo "Logs: ${LOG_DIR}"
 
 pids=()
@@ -23,7 +25,9 @@ for model in ${MODELS}; do
   (
     export MODEL="${model}"
     export RUN_NAME="${RUN_NAME}"
-    srun --partition="${PARTITION}" --gres="gpu:${GPUS_PER_MODEL}" \
+    srun --partition="${PARTITION}" \
+      --gres="gpu:${GPUS_PER_MODEL}" \
+      --cpus-per-task="${CPUS_PER_MODEL}" \
       "${PROJECT_ROOT}/FinDiffusion_CSDI_Pipeline/scripts/run_one_gpu.sh" "$@"
   ) > "${LOG_DIR}/${model}.log" 2>&1 &
   pids+=("$!")

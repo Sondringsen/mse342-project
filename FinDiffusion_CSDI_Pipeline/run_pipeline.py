@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Run the one-step FinDiffusion/CSDI comparison pipeline."""
+"""Run the FinDiffusion/CSDI horizon comparison pipeline."""
 
 from pathlib import Path
 import sys
@@ -13,4 +13,3 @@ from pipeline.pipeline import main
 
 if __name__ == "__main__":
     main()
-
