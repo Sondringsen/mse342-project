@@ -11,6 +11,8 @@ All outputs land under outputs/{model}/:
     hedging/hedging_model.pt  — trained deep hedging model
 """
 
+from __future__ import annotations
+
 import argparse
 import logging
 import subprocess
