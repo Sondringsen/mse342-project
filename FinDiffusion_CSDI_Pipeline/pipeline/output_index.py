@@ -1,0 +1,341 @@
+"""Build a navigable index for pipeline output directories."""
+
+from __future__ import annotations
+
+import argparse
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+import pandas as pd
+
+
+EXPECTED_MODELS = {"csdi", "findiffusion"}
+
+
+def write_outputs_index(outputs_dir: Path) -> pd.DataFrame:
+    """Write outputs/index.csv and outputs/README.md for run navigation."""
+    outputs_dir.mkdir(parents=True, exist_ok=True)
+    index = build_outputs_index(outputs_dir)
+    index.to_csv(outputs_dir / "index.csv", index=False)
+    write_outputs_readme(index, outputs_dir)
+    write_latest_pointers(index, outputs_dir)
+    return index
+
+
+def build_outputs_index(outputs_dir: Path) -> pd.DataFrame:
+    rows = []
+    for run_dir in sorted(outputs_dir.iterdir(), key=lambda path: path.name):
+        if not run_dir.is_dir() or run_dir.name.startswith("."):
+            continue
+        rows.append(scan_run_dir(run_dir, outputs_dir))
+    frame = pd.DataFrame(rows)
+    if frame.empty:
+        return frame
+    status_order = {"complete": 0, "partial": 1, "incomplete": 2, "empty": 3}
+    frame["_status_order"] = frame["status"].map(status_order).fillna(9)
+    frame = frame.sort_values(
+        ["_status_order", "updated_at", "run_name"],
+        ascending=[True, False, True],
+    ).drop(columns=["_status_order"])
+    return frame.reset_index(drop=True)
+
+
+def scan_run_dir(run_dir: Path, outputs_dir: Path) -> Dict[str, Any]:
+    model_result_paths = sorted(run_dir.glob("*/evaluation_results.json"))
+    models = sorted(path.parent.name for path in model_result_paths)
+    has_report = (run_dir / "comparison_report.md").exists()
+    has_summary = (run_dir / "comparison_summary.csv").exists()
+    has_logs = (run_dir / "logs").exists()
+
+    if EXPECTED_MODELS.issubset(models) and has_report and has_summary:
+        status = "complete"
+    elif model_result_paths:
+        status = "partial"
+    elif has_logs or (run_dir / "run_config.yaml").exists():
+        status = "incomplete"
+    else:
+        status = "empty"
+
+    row: Dict[str, Any] = {
+        "run_name": run_dir.name,
+        "status": status,
+        "models": ",".join(models) if models else "",
+        "n_models": len(models),
+        "updated_at": latest_mtime_iso(run_dir),
+        "run_dir": relative_path(run_dir, outputs_dir),
+        "readme": relative_if_exists(run_dir / "README.md", outputs_dir),
+        "comparison_report": relative_if_exists(run_dir / "comparison_report.md", outputs_dir),
+        "comparison_summary": relative_if_exists(run_dir / "comparison_summary.csv", outputs_dir),
+        "plots_dir": relative_if_exists(run_dir / "plots", outputs_dir),
+    }
+    row.update(summary_highlights(run_dir / "comparison_summary.csv"))
+    return row
+
+
+def summary_highlights(summary_path: Path) -> Dict[str, Any]:
+    defaults: Dict[str, Any] = {
+        "overall_best_model": "",
+        "overall_best_value": "",
+        "median_mae_best_model": "",
+        "median_mae_best_value": "",
+        "stylized_best_model": "",
+        "stylized_best_value": "",
+    }
+    if not summary_path.exists():
+        return defaults
+    try:
+        summary = pd.read_csv(summary_path)
+    except (OSError, pd.errors.EmptyDataError, ValueError):
+        return defaults
+    if summary.empty or "model" not in summary.columns:
+        return defaults
+
+    fill_best(
+        defaults,
+        summary,
+        column="metric_summary_overall_score",
+        model_key="overall_best_model",
+        value_key="overall_best_value",
+        higher_is_better=True,
+    )
+    fill_best(
+        defaults,
+        summary,
+        column="forecast_median_mae",
+        model_key="median_mae_best_model",
+        value_key="median_mae_best_value",
+        higher_is_better=False,
+    )
+    fill_best(
+        defaults,
+        summary,
+        column="stylized_synthetic_summary_pass_rate",
+        model_key="stylized_best_model",
+        value_key="stylized_best_value",
+        higher_is_better=True,
+    )
+    return defaults
+
+
+def fill_best(
+    output: Dict[str, Any],
+    summary: pd.DataFrame,
+    column: str,
+    model_key: str,
+    value_key: str,
+    higher_is_better: bool,
+) -> None:
+    if column not in summary.columns:
+        return
+    values = summary[["model", column]].dropna()
+    if values.empty:
+        return
+    values[column] = pd.to_numeric(values[column], errors="coerce")
+    values = values.dropna()
+    if values.empty:
+        return
+    best = values.sort_values(column, ascending=not higher_is_better).iloc[0]
+    output[model_key] = str(best["model"])
+    output[value_key] = float(best[column])
+
+
+def write_outputs_readme(index: pd.DataFrame, outputs_dir: Path) -> None:
+    latest = latest_complete_run(index)
+    latest_any = latest_run(index)
+    lines = [
+        "# Pipeline Outputs",
+        "",
+        "This directory is generated by the FinDiffusion vs CSDI comparison pipeline.",
+        "Use this index to avoid opening partial or cancelled runs by mistake.",
+        "",
+    ]
+    if latest is not None:
+        lines.extend(
+            [
+                "## Start Here",
+                "",
+                "- Latest complete run: [%s](%s/)" % (latest["run_name"], latest["run_dir"]),
+                "- Stable latest-complete link: [latest_complete](latest_complete/)",
+                "- Full report: [%s](%s)"
+                % (latest["comparison_report"], latest["comparison_report"]),
+                "- Run README: [%s](%s)" % (latest["readme"], latest["readme"])
+                if latest.get("readme")
+                else "- Run README: not generated",
+                "",
+            ]
+        )
+    if latest_any is not None:
+        lines.extend(
+            [
+                "## Most Recent Run",
+                "",
+                "- Most recent run of any status: [%s](%s/)"
+                % (latest_any["run_name"], latest_any["run_dir"]),
+                "- Stable most-recent link: [latest_run](latest_run/)",
+                "- Status: `%s`" % latest_any["status"],
+                "",
+            ]
+        )
+
+    lines.extend(
+        [
+            "## Runs",
+            "",
+            markdown_run_table(index),
+            "",
+            "## Status Key",
+            "",
+            "- `complete`: both FinDiffusion and CSDI have evaluation results plus a comparison report.",
+            "- `partial`: at least one model has evaluation results, but the full comparison is missing.",
+            "- `incomplete`: run config/logs exist, but no model evaluation results were found.",
+            "- `empty`: directory exists without recognizable pipeline artifacts.",
+            "",
+            "## Files",
+            "",
+            "- `index.csv`: machine-readable version of the table above.",
+            "- `LATEST_COMPLETE_RUN.txt`: latest run with both model evaluations and comparison report.",
+            "- `LATEST_RUN.txt`: most recently modified run, even if incomplete.",
+            "- `latest_complete/`: symlink to the latest complete run when symlinks are supported.",
+            "- `latest_run/`: symlink to the most recently modified run when symlinks are supported.",
+            "- `<run>/README.md`: short entry point for a completed run.",
+            "- `<run>/comparison_report.md`: detailed metric and stylized-facts report.",
+            "- `<run>/plots/`: top-level comparison plots.",
+        ]
+    )
+    (outputs_dir / "README.md").write_text("\n".join(lines) + "\n")
+
+
+def latest_complete_run(index: pd.DataFrame) -> Optional[pd.Series]:
+    if index.empty or "status" not in index.columns:
+        return None
+    complete = index[index["status"] == "complete"]
+    if complete.empty:
+        return None
+    return complete.sort_values("updated_at", ascending=False).iloc[0]
+
+
+def latest_run(index: pd.DataFrame) -> Optional[pd.Series]:
+    if index.empty or "updated_at" not in index.columns:
+        return None
+    return index.sort_values("updated_at", ascending=False).iloc[0]
+
+
+def write_latest_pointers(index: pd.DataFrame, outputs_dir: Path) -> None:
+    latest = latest_run(index)
+    latest_complete = latest_complete_run(index)
+    write_pointer_file(outputs_dir / "LATEST_RUN.txt", latest)
+    write_pointer_file(outputs_dir / "LATEST_COMPLETE_RUN.txt", latest_complete)
+    if latest is not None:
+        update_directory_symlink(outputs_dir / "latest_run", outputs_dir / str(latest["run_name"]))
+    if latest_complete is not None:
+        update_directory_symlink(
+            outputs_dir / "latest_complete",
+            outputs_dir / str(latest_complete["run_name"]),
+        )
+
+
+def write_pointer_file(path: Path, row: Optional[pd.Series]) -> None:
+    if row is None:
+        path.write_text("No run found.\n")
+        return
+    lines = [
+        f"run_name: {row['run_name']}",
+        f"status: {row['status']}",
+        f"updated_at: {row['updated_at']}",
+        f"run_dir: {row['run_dir']}",
+    ]
+    if row.get("comparison_report"):
+        lines.append(f"comparison_report: {row['comparison_report']}")
+    path.write_text("\n".join(lines) + "\n")
+
+
+def update_directory_symlink(link_path: Path, target_path: Path) -> None:
+    try:
+        if link_path.is_symlink() or link_path.exists():
+            if link_path.is_dir() and not link_path.is_symlink():
+                return
+            link_path.unlink()
+        link_path.symlink_to(target_path.name, target_is_directory=True)
+    except OSError:
+        return
+
+
+def markdown_run_table(index: pd.DataFrame) -> str:
+    if index.empty:
+        return "_No output runs found._"
+    columns = [
+        ("run_name", "Run"),
+        ("status", "Status"),
+        ("models", "Models"),
+        ("overall_best_model", "Overall"),
+        ("median_mae_best_model", "Median MAE"),
+        ("comparison_report", "Report"),
+        ("updated_at", "Updated"),
+    ]
+    header = "| " + " | ".join(label for _key, label in columns) + " |"
+    divider = "| " + " | ".join("---" for _key, _label in columns) + " |"
+    rows = [header, divider]
+    for _, row in index.iterrows():
+        cells = []
+        for key, _label in columns:
+            value = row.get(key, "")
+            if key == "run_name":
+                value = "[%s](%s/)" % (value, row.get("run_dir", value))
+            elif key == "comparison_report" and isinstance(value, str) and value:
+                value = "[report](%s)" % value
+            else:
+                value = format_cell(value)
+            cells.append(value)
+        rows.append("| " + " | ".join(cells) + " |")
+    return "\n".join(rows)
+
+
+def latest_mtime_iso(path: Path) -> str:
+    latest = path.stat().st_mtime
+    for child in path.rglob("*"):
+        try:
+            latest = max(latest, child.stat().st_mtime)
+        except OSError:
+            continue
+    return datetime.fromtimestamp(latest).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def relative_if_exists(path: Path, base: Path) -> str:
+    return relative_path(path, base) if path.exists() else ""
+
+
+def relative_path(path: Path, base: Path) -> str:
+    try:
+        return path.relative_to(base).as_posix()
+    except ValueError:
+        return path.as_posix()
+
+
+def format_cell(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, float):
+        if pd.isna(value):
+            return ""
+        return f"{value:.6g}"
+    text = str(value)
+    if text == "nan":
+        return ""
+    return text.replace("|", "\\|")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Build FinDiffusion_CSDI_Pipeline outputs index")
+    parser.add_argument(
+        "--outputs-dir",
+        type=Path,
+        default=Path("FinDiffusion_CSDI_Pipeline/outputs"),
+    )
+    args = parser.parse_args()
+    index = write_outputs_index(args.outputs_dir)
+    print("Wrote %s (%d runs)" % (args.outputs_dir / "README.md", len(index)))
+
+
+if __name__ == "__main__":
+    main()
