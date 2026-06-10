@@ -200,12 +200,11 @@ def diversity_metrics(synthetic: np.ndarray) -> Dict[str, float]:
     """
     metrics = {}
     
-    # Pairwise distances
-    n_samples = min(len(synthetic), 1000)  # Limit for computational efficiency
+    # Pairwise distances — capped at 200 to keep corrcoef O(200²·T) manageable
+    n_samples = min(len(synthetic), 200)
     indices = np.random.choice(len(synthetic), n_samples, replace=False)
     samples = synthetic[indices]
-    
-    # Compute pairwise correlations
+
     samples = samples.reshape(len(samples), -1)
     corr_matrix = np.corrcoef(samples)
     upper_tri = corr_matrix[np.triu_indices(n_samples, k=1)]

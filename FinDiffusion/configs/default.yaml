@@ -44,7 +44,7 @@ model:
   
 # Training settings
 training:
-  epochs: 100
+  epochs: 30
   batch_size: 64        # Fits in 20GB with model size
   gradient_accumulation: 1
   

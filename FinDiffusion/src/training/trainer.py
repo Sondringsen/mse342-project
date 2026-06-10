@@ -152,11 +152,14 @@ class Trainer:
             logger.warning("wandb not installed, skipping wandb logging")
             self.config.use_wandb = False
 
-    def train_epoch(self) -> float:
+    def train_epoch(self) -> dict:
         """Train for one epoch."""
         self.model.train()
         total_loss = 0.0
+        total_ddpm_loss = 0.0
+        total_topo_loss = 0.0
         num_batches = 0
+        topo_steps = 0
         
         pbar = tqdm(self.train_loader, desc=f"Epoch {self.epoch + 1}", leave=False)
         
@@ -202,6 +205,10 @@ class Trainer:
             
             # Track loss
             total_loss += loss.item()
+            total_ddpm_loss += outputs.get("ddpm_loss", loss).item()
+            if "topo_loss" in outputs and outputs["topo_loss"].item() > 0:
+                total_topo_loss += outputs["topo_loss"].item()
+                topo_steps += 1
             num_batches += 1
             self.global_step += 1
             
@@ -220,8 +227,12 @@ class Trainer:
                     log_dict["train/ddpm_loss"] = outputs["ddpm_loss"].item()
                     log_dict["train/topo_loss"] = outputs["topo_loss"].item()
                 wandb.log(log_dict)
-        
-        return total_loss / num_batches
+
+        result = {"loss": total_loss / num_batches}
+        if topo_steps > 0:
+            result["ddpm_loss"] = total_ddpm_loss / num_batches
+            result["topo_loss"] = total_topo_loss / topo_steps
+        return result
 
     @torch.no_grad()
     def validate(self) -> float:
@@ -324,7 +335,8 @@ class Trainer:
             self.epoch = epoch
             
             # Train
-            train_loss = self.train_epoch()
+            train_result = self.train_epoch()
+            train_loss = train_result["loss"]
             self.train_losses.append(train_loss)
             
             # Validate
@@ -345,6 +357,9 @@ class Trainer:
                     "train/epoch_loss": train_loss,
                     "val/epoch_loss": val_loss,
                 }
+                if "topo_loss" in train_result:
+                    log_dict["train/epoch_ddpm_loss"] = train_result["ddpm_loss"]
+                    log_dict["train/epoch_topo_loss"] = train_result["topo_loss"]
                 
                 # Generate and log samples
                 if (epoch + 1) % self.config.sample_every == 0:

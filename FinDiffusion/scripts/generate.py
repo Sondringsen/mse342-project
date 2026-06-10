@@ -43,6 +43,8 @@ def main():
                         help="Output CSV path (default: outputs/{model}/synthetic.csv)")
     parser.add_argument("--ddim", action="store_true", help="Use DDIM for faster sampling")
     parser.add_argument("--ddim_steps", type=int, default=50)
+    parser.add_argument("--batch_size", type=int, default=500,
+                        help="Samples per generation batch (reduce if OOM)")
     parser.add_argument("--seed", type=int, default=None)
     args = parser.parse_args()
 
@@ -115,18 +117,24 @@ def main():
     else:
         logger.info(f"Generating with conditions: {conditions}")
 
-    logger.info(f"Generating {args.n_samples} samples...")
+    logger.info(f"Generating {args.n_samples} samples in batches of {args.batch_size}...")
+    all_samples = []
+    remaining = args.n_samples
     with torch.no_grad():
-        samples = model.generate(
-            n_samples=args.n_samples,
-            conditions=conditions,
-            use_ddim=args.ddim,
-            ddim_steps=args.ddim_steps if args.ddim else None,
-            device=device,
-            progress=True,
-        )
+        while remaining > 0:
+            n = min(args.batch_size, remaining)
+            batch = model.generate(
+                n_samples=n,
+                conditions=conditions,
+                use_ddim=args.ddim,
+                ddim_steps=args.ddim_steps if args.ddim else None,
+                device=device,
+                progress=True,
+            )
+            all_samples.append(batch.cpu())
+            remaining -= n
 
-    samples = samples.cpu().numpy()                  # (N, seq_len, 1) or (N, seq_len)
+    samples = torch.cat(all_samples, dim=0).numpy()                  # (N, seq_len, 1) or (N, seq_len)
     samples = data_module.denormalize(samples)
     if samples.ndim == 3:
         samples = samples[:, :, 0]                   # (N, seq_len)
