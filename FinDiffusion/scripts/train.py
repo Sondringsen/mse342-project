@@ -141,9 +141,13 @@ def main():
             topo_batch_size=topo_cfg.get("topo_batch_size", 16),
             n_ref_samples=topo_cfg.get("n_ref_samples", 500),
         )
-        topo_loss_fn.compute_reference(
-            data_module.train_dataloader(), device=torch.device("cpu")
-        )
+        cache_path = Path(config.get("output_dir", "outputs/ddpm_topo")) / "topo_reference.pt"
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        if not topo_loss_fn.load_reference(str(cache_path), device=torch.device("cpu")):
+            topo_loss_fn.compute_reference(
+                data_module.train_dataloader(), device=torch.device("cpu")
+            )
+            topo_loss_fn.save_reference(str(cache_path))
 
     # Create model
     logger.info("Creating model...")
