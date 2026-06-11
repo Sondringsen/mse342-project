@@ -386,15 +386,35 @@ class GaussianDiffusion(nn.Module):
         loss_ddpm = F.mse_loss(model_output, target)
 
         if topo_loss_fn is not None:
-            # Recover predicted x̂₀ to compute topological features
-            if self.prediction_type == "epsilon":
-                x_hat_0 = self.predict_x0_from_eps(x_t, t, model_output)
-            else:
-                x_hat_0 = model_output
-            if x_hat_0.dim() == 3:
-                x_hat_0 = x_hat_0.squeeze(-1)   # (B, T, 1) → (B, T)
+            # Only use samples where the diffusion timestep t falls in a range
+            # where x̂₀ is both (a) a meaningful reconstruction and (b) provides
+            # a non-trivial gradient back to ε_θ.
+            #
+            # The gradient of the topo loss w.r.t. ε_θ scales as
+            #   √(1−ᾱ_t) / √ᾱ_t
+            # which is ≈0 at t=0 (x̂₀ ≈ x₀, ε_θ barely matters) and blows
+            # up at large t (x̂₀ scale ∝ 1/√ᾱ_t, point cloud out of the
+            # filtration range → empty diagram → zero gradient anyway).
+            # The window [T/20, T/4] keeps the scale inflation below ~1.4×
+            # and the gradient factor above ~0.3.
+            t_min = self.timesteps // 20   # ≈ 50  for T=1000
+            t_max = self.timesteps // 4    # ≈ 250 for T=1000
+            topo_mask = (t >= t_min) & (t < t_max)
 
-            loss_topo = topo_loss_fn.compute(x_hat_0)
+            if topo_mask.any():
+                if self.prediction_type == "epsilon":
+                    x_hat_0 = self.predict_x0_from_eps(x_t, t, model_output)
+                else:
+                    x_hat_0 = model_output
+                if x_hat_0.dim() == 3:
+                    x_hat_0 = x_hat_0.squeeze(-1)   # (B, T, 1) → (B, T)
+                # Clip to generation range so the point-cloud scale matches
+                # what max_edge_length was calibrated on.
+                x_hat_0 = x_hat_0.clamp(*self.clip_range)
+                loss_topo = topo_loss_fn.compute(x_hat_0[topo_mask])
+            else:
+                loss_topo = model_output.new_zeros(())
+
             loss = loss_ddpm + topo_loss_fn.topo_weight * loss_topo
             return {"loss": loss, "ddpm_loss": loss_ddpm, "topo_loss": loss_topo}
 

@@ -242,6 +242,7 @@ class TopologicalLoss(nn.Module):
         n_landscapes: int = 3,
         n_grid_points: int = 50,
         topo_weight: float = 0.1,
+        std_weight: float = 0.5,
         apply_every_n_steps: int = 5,
         topo_batch_size: int = 16,
         n_ref_samples: int = 500,
@@ -252,6 +253,7 @@ class TopologicalLoss(nn.Module):
             n_landscapes        : number of landscape functions N_λ
             n_grid_points       : grid resolution N_g for landscape evaluation
             topo_weight         : α_topo weight in the combined loss
+            std_weight          : weight for the one-sided variance penalty
             apply_every_n_steps : compute topo loss every N training steps
             topo_batch_size     : random sub-batch size for persistence (cost control)
             n_ref_samples       : max sequences used to compute λ̄^real
@@ -261,6 +263,7 @@ class TopologicalLoss(nn.Module):
         self.n_landscapes = n_landscapes
         self.n_grid_points = n_grid_points
         self.topo_weight = topo_weight
+        self.std_weight = std_weight
         self.apply_every_n_steps = apply_every_n_steps
         self.topo_batch_size = topo_batch_size
         self.n_ref_samples = n_ref_samples
@@ -269,6 +272,9 @@ class TopologicalLoss(nn.Module):
         self.register_buffer("t_grid", torch.linspace(0.0, 2.0, n_grid_points))
         self.register_buffer(
             "reference_landscape", torch.zeros(n_landscapes, n_grid_points)
+        )
+        self.register_buffer(
+            "reference_landscape_std", torch.zeros(n_landscapes, n_grid_points)
         )
         self.max_edge_length: float = 2.0
         self._reference_computed: bool = False
@@ -280,6 +286,7 @@ class TopologicalLoss(nn.Module):
         torch.save(
             {
                 "reference_landscape": self.reference_landscape.cpu(),
+                "reference_landscape_std": self.reference_landscape_std.cpu(),
                 "t_grid": self.t_grid.cpu(),
                 "max_edge_length": self.max_edge_length,
             },
@@ -293,7 +300,12 @@ class TopologicalLoss(nn.Module):
         if not os.path.exists(path):
             return False
         data = torch.load(path, map_location=device)
+        if "reference_landscape_std" not in data:
+            # Cache predates the std term — recompute rather than load.
+            logger.info("Reference cache is stale (no std); will recompute.")
+            return False
         self.reference_landscape.copy_(data["reference_landscape"].to(device))
+        self.reference_landscape_std.copy_(data["reference_landscape_std"].to(device))
         self.t_grid.copy_(data["t_grid"].to(device))
         self.max_edge_length = data["max_edge_length"]
         self._reference_computed = True
@@ -401,12 +413,16 @@ class TopologicalLoss(nn.Module):
             logger.warning("No training sequences found; reference landscape is zero.")
             return
 
-        mean_land = torch.stack(landscapes).mean(0)
+        stacked = torch.stack(landscapes)          # (n_processed, N_λ, N_g)
+        mean_land = stacked.mean(0)
+        std_land = stacked.std(0)
         self.reference_landscape.copy_(mean_land.to(device))
+        self.reference_landscape_std.copy_(std_land.to(device))
         self._reference_computed = True
         logger.info(
             f"Reference landscape ready ({n_processed} sequences). "
-            f"Mean absolute value: {mean_land.abs().mean():.5f}"
+            f"Mean abs: {mean_land.abs().mean():.5f}, "
+            f"Std abs: {std_land.abs().mean():.5f}"
         )
 
     # ── Per-sequence differentiable landscape ────────────────────────────────
@@ -437,12 +453,23 @@ class TopologicalLoss(nn.Module):
         """
         Topological regularization loss for a batch of predicted clean sequences.
 
+        Compares batch-level statistics (mean and variance) of the generated
+        persistence landscapes against those of real training data, rather than
+        comparing each sequence individually to the reference mean.  This allows
+        individual crash-like sequences (high topology) to exist without penalty
+        as long as the batch collectively has the right distributional shape.
+
+        Two terms:
+          L_mean : MSE between batch-mean landscape and reference mean (bidirectional)
+          L_std  : one-sided penalty when batch std falls below reference std,
+                   encouraging the model to preserve topological variance.
+
         Skips on most steps (controlled by apply_every_n_steps) to amortise
-        the cost of persistence computation. On a skipped step returns a zero
-        scalar that contributes nothing to the backward pass.
+        the cost of persistence computation.
 
         Args:
-            x_hat_0 : (B, T) predicted clean log-return sequences
+            x_hat_0 : (B, T) predicted clean log-return sequences, already
+                      filtered to low-noise timesteps and clipped by the caller.
 
         Returns:
             Scalar L_topo  (or 0 on skipped steps)
@@ -460,13 +487,25 @@ class TopologicalLoss(nn.Module):
         idx = torch.randperm(B, device=x_hat_0.device)[:n]
         sub = x_hat_0[idx]  # (n, T)
 
-        losses = []
-        for seq in sub:
-            land = self._sequence_landscape(seq)
-            diff = land - self.reference_landscape
-            losses.append((diff * diff).sum())
+        batch_landscapes = torch.stack(
+            [self._sequence_landscape(seq) for seq in sub]
+        )  # (n, N_λ, N_g)
 
-        return torch.stack(losses).mean()
+        # ── Mean term (bidirectional) ────────────────────────────────────────
+        batch_mean = batch_landscapes.mean(0)
+        loss_mean = ((batch_mean - self.reference_landscape) ** 2).sum()
+
+        # ── Std term (one-sided: only penalise low variance) ─────────────────
+        # Requires at least 2 samples to compute std; skip otherwise.
+        if n > 1:
+            batch_std = batch_landscapes.std(0)
+            loss_std = (
+                torch.clamp(self.reference_landscape_std - batch_std, min=0.0) ** 2
+            ).sum()
+        else:
+            loss_std = x_hat_0.new_zeros(())
+
+        return loss_mean + self.std_weight * loss_std
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────

@@ -137,6 +137,7 @@ def main():
             n_landscapes=topo_cfg.get("n_landscapes", 3),
             n_grid_points=topo_cfg.get("n_grid_points", 50),
             topo_weight=topo_cfg.get("topo_weight", 0.1),
+            std_weight=topo_cfg.get("std_weight", 0.5),
             apply_every_n_steps=topo_cfg.get("apply_every_n_steps", 5),
             topo_batch_size=topo_cfg.get("topo_batch_size", 16),
             n_ref_samples=topo_cfg.get("n_ref_samples", 500),
