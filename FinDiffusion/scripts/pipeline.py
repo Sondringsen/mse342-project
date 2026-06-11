@@ -11,6 +11,8 @@ All outputs land under outputs/{model}/:
     hedging/hedging_model.pt  — trained deep hedging model
 """
 
+from __future__ import annotations
+
 import argparse
 import logging
 import subprocess
@@ -55,7 +57,7 @@ def main():
                         help="Number of synthetic paths to generate for hedger training")
 
     # Hedger training
-    parser.add_argument("--n_epochs_hedging", type=int, default=100)
+    parser.add_argument("--n_epochs_hedging", type=int, default=1000)
     parser.add_argument("--batch_size_hedging", type=int, default=256)
     parser.add_argument("--lr_hedging", type=float, default=1e-3)
     parser.add_argument("--hidden_dim", type=int, default=64)

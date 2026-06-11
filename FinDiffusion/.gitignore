@@ -113,6 +113,7 @@ dmypy.json
 
 # Data files
 data/
+!src/data/
 *.csv
 *.parquet
 *.h5

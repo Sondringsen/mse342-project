@@ -25,8 +25,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.models import FinancialDiffusion
 from src.data import FinancialDataModule
-from src.evaluation import validate_stylized_facts, compute_all_metrics, print_metrics_report, print_stylized_facts_table
-from src.evaluation.stylized_facts import compare_distributions
+from src.evaluation import compute_all_metrics, print_metrics_report, print_stylized_facts_table
+from src.evaluation.stylized_facts import compare_distributions, validate_stylized_facts_per_sequence
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -180,8 +180,8 @@ def load_synthetic(data_path: str) -> np.ndarray:
 # ---------------------------------------------------------------------------
 
 def evaluate_stylized_facts(real: np.ndarray, synthetic: np.ndarray) -> dict:
-    real_results = validate_stylized_facts(real)
-    syn_results = validate_stylized_facts(synthetic)
+    real_results = validate_stylized_facts_per_sequence(real)
+    syn_results = validate_stylized_facts_per_sequence(synthetic)
 
     logger.info("Real stylized facts:")
     for k, v in real_results.items():

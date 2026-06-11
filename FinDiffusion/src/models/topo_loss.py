@@ -276,6 +276,30 @@ class TopologicalLoss(nn.Module):
 
     # ── Reference computation ────────────────────────────────────────────────
 
+    def save_reference(self, path: str) -> None:
+        torch.save(
+            {
+                "reference_landscape": self.reference_landscape.cpu(),
+                "t_grid": self.t_grid.cpu(),
+                "max_edge_length": self.max_edge_length,
+            },
+            path,
+        )
+        logger.info(f"Reference landscape saved to {path}")
+
+    def load_reference(self, path: str, device: torch.device) -> bool:
+        """Returns True if loaded successfully, False if file not found."""
+        import os
+        if not os.path.exists(path):
+            return False
+        data = torch.load(path, map_location=device)
+        self.reference_landscape.copy_(data["reference_landscape"].to(device))
+        self.t_grid.copy_(data["t_grid"].to(device))
+        self.max_edge_length = data["max_edge_length"]
+        self._reference_computed = True
+        logger.info(f"Reference landscape loaded from {path}")
+        return True
+
     @torch.no_grad()
     def compute_reference(
         self,

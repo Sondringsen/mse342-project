@@ -81,28 +81,25 @@ def temporal_metrics(
     Returns:
         Dict of metric names to values
     """
-    # Handle 2D arrays by averaging
-    if real.ndim > 1:
-        real = real.mean(axis=0)
-    if synthetic.ndim > 1:
-        synthetic = synthetic.mean(axis=0)
-    
     metrics = {}
-    
-    # Autocorrelation comparison (raw returns)
-    acf_real = _compute_acf(real, max_lag)
-    acf_syn = _compute_acf(synthetic, max_lag)
+
+    def _mean_acf(arr: np.ndarray) -> tuple:
+        if arr.ndim == 3:
+            arr = arr.squeeze(-1)
+        if arr.ndim == 1:
+            return _compute_acf(arr, max_lag), _compute_acf(arr ** 2, max_lag)
+        acf_rows = np.array([_compute_acf(arr[i], max_lag) for i in range(len(arr))])
+        acf_sq_rows = np.array([_compute_acf(arr[i] ** 2, max_lag) for i in range(len(arr))])
+        return acf_rows.mean(axis=0), acf_sq_rows.mean(axis=0)
+
+    acf_real, acf_sq_real = _mean_acf(real)
+    acf_syn, acf_sq_syn = _mean_acf(synthetic)
+
     metrics["acf_mae"] = np.mean(np.abs(acf_syn - acf_real))
-    
-    # Autocorrelation of squared returns (volatility clustering)
-    acf_sq_real = _compute_acf(real ** 2, max_lag)
-    acf_sq_syn = _compute_acf(synthetic ** 2, max_lag)
     metrics["acf_squared_mae"] = np.mean(np.abs(acf_sq_syn - acf_sq_real))
-    
-    # Volatility clustering strength
-    metrics["vol_cluster_real"] = acf_sq_real[1] if len(acf_sq_real) > 1 else 0
-    metrics["vol_cluster_syn"] = acf_sq_syn[1] if len(acf_sq_syn) > 1 else 0
-    
+    metrics["vol_cluster_real"] = float(acf_sq_real[1]) if len(acf_sq_real) > 1 else 0
+    metrics["vol_cluster_syn"] = float(acf_sq_syn[1]) if len(acf_sq_syn) > 1 else 0
+
     return metrics
 
 
@@ -200,12 +197,11 @@ def diversity_metrics(synthetic: np.ndarray) -> Dict[str, float]:
     """
     metrics = {}
     
-    # Pairwise distances
-    n_samples = min(len(synthetic), 1000)  # Limit for computational efficiency
+    # Pairwise distances — capped at 200 to keep corrcoef O(200²·T) manageable
+    n_samples = min(len(synthetic), 200)
     indices = np.random.choice(len(synthetic), n_samples, replace=False)
     samples = synthetic[indices]
-    
-    # Compute pairwise correlations
+
     samples = samples.reshape(len(samples), -1)
     corr_matrix = np.corrcoef(samples)
     upper_tri = corr_matrix[np.triu_indices(n_samples, k=1)]

@@ -104,7 +104,7 @@ def main():
         help="Config file (required for --model real)",
     )
     parser.add_argument("--n_samples",  type=int,   default=10000, help="Max training paths to use")
-    parser.add_argument("--n_epochs",   type=int,   default=100)
+    parser.add_argument("--n_epochs",   type=int,   default=1000)
     parser.add_argument("--batch_size", type=int,   default=256)
     parser.add_argument("--lr",         type=float, default=1e-3)
     parser.add_argument("--hidden_dim", type=int,   default=64)

@@ -93,9 +93,11 @@ class StylizedFactsValidator:
         
         exceedances = sorted_returns[:k]
         log_ratios = np.log(exceedances / threshold)
-        
-        tail_index = k / np.sum(log_ratios)
-        return tail_index
+
+        log_sum = np.sum(log_ratios)
+        if log_sum == 0:
+            return np.inf
+        return k / log_sum
 
     def _interpret_fat_tails(self, kurtosis: float, tail_index: float) -> str:
         """Interpret fat tails results."""
@@ -391,17 +393,14 @@ def validate_stylized_facts_per_sequence(
         test_rows = [r[test_name] for r in seq_results]
         agg = {f: float(np.mean([row[f] for row in test_rows])) for f in fields}
 
-        # Re-apply pass/fail on aggregated statistics
-        if test_name == "fat_tails":
-            passed = (agg["excess_kurtosis"] > 0) and (agg["jarque_bera_pvalue"] < significance_level)
-        elif test_name == "volatility_clustering":
-            passed = (agg["acf_squared_lag1"] > 0.05) or (agg["ljung_box_pvalue"] < significance_level)
-        elif test_name == "leverage_effect":
-            passed = agg["leverage_correlation"] < -0.02
-        else:  # no_autocorrelation
-            passed = (abs(agg["acf_lag1"]) < 0.1) and (agg["ljung_box_pvalue"] > significance_level)
+        # Derive pass/fail from the fraction of individual sequences that passed.
+        # Averaging p-values across sequences is not statistically valid (p-values have
+        # low power on short windows), so we use majority-vote over per-sequence results.
+        pass_rate = float(np.mean([row["passed"] for row in test_rows]))
+        passed = pass_rate > 0.5
 
-        aggregated[test_name] = {"test": test_name, "passed": passed, "n_sequences": n_sequences, **agg}
+        aggregated[test_name] = {"test": test_name, "passed": passed, "n_sequences": n_sequences,
+                                  "pass_rate": pass_rate, **agg}
 
     n_passed = sum(1 for v in aggregated.values() if v["passed"])
     n_total = len(aggregated)

@@ -28,6 +28,9 @@ echo "Start: $(date)"
 PROJECT_DIR="$HOME/mse342-project/FinDiffusion"
 cd "$PROJECT_DIR" || { echo "ERROR: project dir not found at $PROJECT_DIR"; exit 1; }
 
+# Load Python 3.12 — compute nodes start with Python 2.7 by default
+module load python/3.12.1
+
 # Activate virtual environment
 # If you use conda instead, replace with: conda activate findiff
 source .findiffvenv/bin/activate
