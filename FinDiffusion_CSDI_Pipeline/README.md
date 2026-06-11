@@ -103,6 +103,59 @@ RUN_NAME=horizon_20d GPUS_PER_MODEL=2 \
   --num-workers 4 --ddim
 ```
 
+Downstream deep-hedging evaluation uses the hedging agent in `FinDiffusion/`.
+It converts each completed model `predictions.csv` into 30-day return windows,
+trains one hedger per run on synthetic paths, and evaluates every hedger on the
+same real held-out windows. This step is CPU-friendly and does not need to
+consume one of the five available GPUs:
+
+```bash
+FinDiffusion_CSDI_Pipeline/scripts/run_hedging_compare.sh \
+  --output-dir FinDiffusion_CSDI_Pipeline/outputs/hedging_topology_eval \
+  --eval-run-dir FinDiffusion_CSDI_Pipeline/outputs/findiff_topo_h20_w001_evalbest_20260610_2102 \
+  FinDiffusion_CSDI_Pipeline/outputs/findiff_topo_h20_w001_evalbest_20260610_2102 \
+  FinDiffusion_CSDI_Pipeline/outputs/findiff_topo_h20_w002_evalbest_20260610_2102 \
+  FinDiffusion_CSDI_Pipeline/outputs/findiff_topo_h20_w005_evalbest_20260610_2102
+```
+
+On Slurm, run it on the CPU partition:
+
+```bash
+sbatch --partition=cpu --cpus-per-task=8 \
+  FinDiffusion_CSDI_Pipeline/scripts/run_hedging_compare.sh \
+  --output-dir FinDiffusion_CSDI_Pipeline/outputs/hedging_topology_eval \
+  --eval-run-dir FinDiffusion_CSDI_Pipeline/outputs/findiff_topo_h20_w001_evalbest_20260610_2102 \
+  FinDiffusion_CSDI_Pipeline/outputs/findiff_topo_h20_w001_evalbest_20260610_2102 \
+  FinDiffusion_CSDI_Pipeline/outputs/findiff_topo_h20_w002_evalbest_20260610_2102 \
+  FinDiffusion_CSDI_Pipeline/outputs/findiff_topo_h20_w005_evalbest_20260610_2102
+```
+
+Business-cycle topology diagnostics compare rolling multivariate topology across
+the 30-stock panel. They align real returns and pseudo-joint synthetic sample
+panels from each run's `predictions.csv`, then compute rolling topology distance
+to the real market panel:
+
+```bash
+FinDiffusion_CSDI_Pipeline/scripts/run_business_cycle_topology.sh \
+  FinDiffusion_CSDI_Pipeline/outputs/findiff_vtl_h30_p4_20260610_2021 \
+  FinDiffusion_CSDI_Pipeline/outputs/findiff_topo_h20_w005_postresume_eval_20260610_2107 \
+  --output-dir FinDiffusion_CSDI_Pipeline/outputs/business_cycle_topology_eval \
+  --rolling-window 252 \
+  --rolling-stride 21 \
+  --max-cloud-points 80 \
+  --max-samples 25
+```
+
+To connect the business-cycle topology metric to downstream utility, join the
+topology summary with repeated hedging results:
+
+```bash
+python FinDiffusion_CSDI_Pipeline/scripts/join_topology_hedging.py \
+  --topology-summary FinDiffusion_CSDI_Pipeline/outputs/business_cycle_topology_eval/business_cycle_topology_summary.csv \
+  --hedging-summary FinDiffusion_CSDI_Pipeline/outputs/hedging_snapshot_topo_vtl_aggregate_20260610_2231/hedging_seed_summary.csv \
+  --output-dir FinDiffusion_CSDI_Pipeline/outputs/topology_hedging_eval
+```
+
 ## Outputs
 
 Results are written under:
@@ -146,6 +199,14 @@ The top-level run directory also contains:
 - `comparison_metric_rankings.csv`
 - `plots/`
 - `run_config.yaml`
+
+Hedging comparison output directories contain:
+
+- `hedging_summary.csv`
+- `run_config.json`
+- `<run_name>/hedging_model.pt`
+- `<run_name>/training_loss.csv`
+- `<run_name>/results.json`
 
 The comparison files include forecast accuracy/calibration, Wasserstein, KS,
 Jensen-Shannon divergence, moment differences including skewness and kurtosis,

@@ -38,6 +38,12 @@ def main() -> None:
     parser.add_argument("--debug", action="store_true", help="Small CPU/GPU smoke-test settings")
     parser.add_argument("--no-download", action="store_true", help="Require cached CSV data")
     parser.add_argument("--eval-only", action="store_true", help="Skip training and load final checkpoints")
+    parser.add_argument(
+        "--checkpoint-path",
+        type=Path,
+        default=None,
+        help="Explicit checkpoint to load for --eval-only or continued training",
+    )
     parser.add_argument("--epochs", type=int, default=None, help="Override training.epochs")
     early_stopping_group = parser.add_mutually_exclusive_group()
     early_stopping_group.add_argument(
@@ -144,11 +150,21 @@ def main() -> None:
     )
 
     model_names = ["findiffusion", "csdi"] if args.model == "both" else [args.model]
+    if args.checkpoint_path is not None and len(model_names) > 1:
+        raise SystemExit("--checkpoint-path requires a single --model selection")
     results = []
     for model_name in model_names:
         model_dir = output_root / model_name
         model_dir.mkdir(parents=True, exist_ok=True)
-        result = run_model(model_name, config, datasets, model_dir, device, eval_only=args.eval_only)
+        result = run_model(
+            model_name,
+            config,
+            datasets,
+            model_dir,
+            device,
+            eval_only=args.eval_only,
+            checkpoint_path=args.checkpoint_path,
+        )
         results.append(result)
 
     if len(results) > 1:
@@ -286,6 +302,7 @@ def run_model(
     output_dir: Path,
     device: torch.device,
     eval_only: bool,
+    checkpoint_path: Path | None = None,
 ) -> Dict:
     from .evaluation import evaluate_predictions, generate_prediction_frame
 
@@ -299,16 +316,31 @@ def run_model(
     final_checkpoint = checkpoint_dir / "final.pt"
 
     if eval_only:
-        checkpoint_path = final_checkpoint if final_checkpoint.exists() else checkpoint_dir / "best.pt"
-        if not checkpoint_path.exists():
+        checkpoint_to_load = checkpoint_path
+        if checkpoint_to_load is None:
+            candidates = [final_checkpoint, checkpoint_dir / "best.pt", checkpoint_dir / "latest.pt"]
+            checkpoint_to_load = next((path for path in candidates if path.exists()), None)
+        if checkpoint_to_load is None or not checkpoint_to_load.exists():
             raise FileNotFoundError(
-                "Missing checkpoint for --eval-only: %s or %s"
-                % (final_checkpoint, checkpoint_dir / "best.pt")
+                "Missing checkpoint for --eval-only: %s, %s, or %s"
+                % (final_checkpoint, checkpoint_dir / "best.pt", checkpoint_dir / "latest.pt")
             )
-        LOGGER.info("Loading checkpoint for evaluation: %s", checkpoint_path)
-        load_checkpoint(model, checkpoint_path, device)
+        LOGGER.info("Loading checkpoint for evaluation: %s", checkpoint_to_load)
+        load_checkpoint(model, checkpoint_to_load, device)
     else:
-        train_model(model, config, datasets, checkpoint_dir, device)
+        initial_history = None
+        if checkpoint_path is not None:
+            LOGGER.info("Loading checkpoint for continued training: %s", checkpoint_path)
+            checkpoint = load_checkpoint(model, checkpoint_path, device)
+            initial_history = checkpoint.get("history") or []
+        train_model(
+            model,
+            config,
+            datasets,
+            checkpoint_dir,
+            device,
+            initial_history=initial_history,
+        )
 
     test_cfg = config["sampling"]
     predictions = generate_prediction_frame(
@@ -332,6 +364,7 @@ def train_model(
     datasets: Dict[str, Any],
     checkpoint_dir: Path,
     device: torch.device,
+    initial_history: List[Dict[str, Any]] | None = None,
 ) -> None:
     train_cfg = config["training"]
     train_loader = make_loader(
@@ -366,10 +399,6 @@ def train_model(
         checkpoint_dir=checkpoint_dir,
         device=device,
     )
-    best_val = float("inf")
-    best_epoch = 0
-    epochs_without_improvement = 0
-    history = []
     early_cfg = train_cfg.get("early_stopping") or {}
     early_enabled = bool(early_cfg.get("enabled", False))
     early_patience = int(early_cfg.get("patience", 0))
@@ -380,8 +409,49 @@ def train_model(
         raise ValueError(
             f"training.early_stopping.min_delta must be non-negative, got {early_min_delta}"
         )
+    history = copy.deepcopy(initial_history) if initial_history else []
+    best_val = float("inf")
+    best_epoch = 0
+    epochs_without_improvement = 0
+    for row in history:
+        try:
+            val_loss = float(row["val_loss"])
+            epoch = int(row["epoch"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if val_loss < best_val - early_min_delta:
+            best_val = val_loss
+            best_epoch = epoch
+            epochs_without_improvement = 0
+        else:
+            epochs_without_improvement += 1
 
-    for epoch in range(int(train_cfg["epochs"])):
+    total_epochs = int(train_cfg["epochs"])
+    start_epoch = len(history)
+    if start_epoch > 0:
+        LOGGER.info(
+            "Continuing training from epoch %d/%d; best_val=%.6f at epoch %d; "
+            "%d epoch(s) without improvement",
+            start_epoch,
+            total_epochs,
+            best_val,
+            best_epoch,
+            epochs_without_improvement,
+        )
+
+    for epoch in range(start_epoch, total_epochs):
+        if early_enabled and early_patience > 0 and epochs_without_improvement >= early_patience:
+            LOGGER.info(
+                "Early stopping already satisfied at epoch %d/%d; best_val=%.6f at epoch %d "
+                "with no improvement for %d epoch(s) (min_delta=%.6g)",
+                start_epoch,
+                int(train_cfg["epochs"]),
+                best_val,
+                best_epoch,
+                epochs_without_improvement,
+                early_min_delta,
+            )
+            break
         train_metrics = run_epoch(
             model=model,
             loader=train_loader,
@@ -426,6 +496,9 @@ def train_model(
                 save_checkpoint(model, checkpoint_dir / "best.pt", history, config)
         else:
             epochs_without_improvement += 1
+
+        save_checkpoint(model, checkpoint_dir / "latest.pt", history, config)
+        pd.DataFrame(history).to_csv(checkpoint_dir / "train_history.csv", index=False)
 
         if early_enabled and early_patience > 0 and epochs_without_improvement >= early_patience:
             LOGGER.info(
@@ -537,9 +610,10 @@ def save_checkpoint(
     )
 
 
-def load_checkpoint(model: torch.nn.Module, path: Path, device: torch.device) -> None:
+def load_checkpoint(model: torch.nn.Module, path: Path, device: torch.device) -> Dict[str, Any]:
     checkpoint = torch.load(path, map_location=device)
     unwrap_model(model).load_state_dict(checkpoint["model_state_dict"])
+    return checkpoint
 
 
 def unwrap_model(model: torch.nn.Module) -> torch.nn.Module:
