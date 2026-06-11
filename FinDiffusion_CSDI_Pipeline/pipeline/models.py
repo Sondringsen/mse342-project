@@ -83,7 +83,22 @@ class FinDiffusionOneStepForecaster(nn.Module):
         history = batch["history"]
         target = batch["target"]
         cond = self.condition_encoder(history)
-        return self.diffusion.training_loss(target, cond=cond)
+        batch_size = target.shape[0]
+        device = target.device
+        t = torch.randint(
+            0, self.diffusion.timesteps, (batch_size,), device=device, dtype=torch.long
+        )
+        noise = torch.randn_like(target)
+        x_t, _ = self.diffusion.q_sample(target, t, noise)
+        model_output = self.diffusion.denoiser(x_t, t, cond)
+        loss_target = noise if self.diffusion.prediction_type == "epsilon" else target
+        base_loss = F.mse_loss(model_output, loss_target)
+        if self.diffusion.prediction_type == "epsilon":
+            x_hat_future = self.diffusion.predict_x0_from_eps(x_t, t, model_output)
+        else:
+            x_hat_future = model_output
+        x_hat_future = x_hat_future.clamp(*self.diffusion.clip_range)
+        return {"loss": base_loss, "base_loss": base_loss, "x_hat_future": x_hat_future}
 
     @torch.no_grad()
     def sample(
@@ -178,8 +193,12 @@ class CSDIStyleOneStepForecaster(nn.Module):
 
         residual = (predicted - noise) * target_mask
         denom = target_mask.sum().clamp_min(1.0)
-        loss = (residual.square().sum() / denom)
-        return {"loss": loss}
+        base_loss = (residual.square().sum() / denom)
+        x_hat_clean = self.diffusion.predict_x0_from_eps(x_t, t, predicted).clamp(
+            *self.diffusion.clip_range
+        )
+        x_hat_future = x_hat_clean[:, self.history_length :]
+        return {"loss": base_loss, "base_loss": base_loss, "x_hat_future": x_hat_future}
 
     @torch.no_grad()
     def sample(

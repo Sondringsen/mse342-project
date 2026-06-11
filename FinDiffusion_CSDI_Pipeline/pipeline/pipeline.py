@@ -19,6 +19,7 @@ from tqdm import tqdm
 
 from .analysis import write_comparison_analysis
 from .data import build_datasets, load_returns, make_loader
+from .losses import AuxiliaryLossComposer, apply_loss_profile
 from .models import build_model
 from .output_index import write_outputs_index
 
@@ -38,6 +39,32 @@ def main() -> None:
     parser.add_argument("--no-download", action="store_true", help="Require cached CSV data")
     parser.add_argument("--eval-only", action="store_true", help="Skip training and load final checkpoints")
     parser.add_argument("--epochs", type=int, default=None, help="Override training.epochs")
+    early_stopping_group = parser.add_mutually_exclusive_group()
+    early_stopping_group.add_argument(
+        "--early-stopping",
+        dest="early_stopping",
+        action="store_true",
+        default=None,
+        help="Enable validation-loss early stopping",
+    )
+    early_stopping_group.add_argument(
+        "--no-early-stopping",
+        dest="early_stopping",
+        action="store_false",
+        help="Disable validation-loss early stopping",
+    )
+    parser.add_argument(
+        "--early-stopping-patience",
+        type=int,
+        default=None,
+        help="Override training.early_stopping.patience; 0 disables stopping",
+    )
+    parser.add_argument(
+        "--early-stopping-min-delta",
+        type=float,
+        default=None,
+        help="Override training.early_stopping.min_delta",
+    )
     parser.add_argument(
         "--prediction-length",
         type=int,
@@ -48,6 +75,24 @@ def main() -> None:
     parser.add_argument("--num-workers", type=int, default=None, help="Override training.num_workers")
     parser.add_argument("--n-samples", type=int, default=None, help="Override sampling.n_samples")
     parser.add_argument("--eval-batch-size", type=int, default=None, help="Override sampling.batch_size")
+    parser.add_argument(
+        "--loss-profile",
+        choices=["none", "vol_only", "vol_tail", "vol_tail_leverage", "realism_topology"],
+        default=None,
+        help="Enable a predefined auxiliary-loss profile",
+    )
+    parser.add_argument(
+        "--realism-context-length",
+        type=int,
+        default=None,
+        help="Override losses.realism.context_length",
+    )
+    parser.add_argument(
+        "--topology-context-length",
+        type=int,
+        default=None,
+        help="Override losses.topology.context_length",
+    )
     parser.add_argument(
         "--max-eval-windows-per-asset",
         type=int,
@@ -133,9 +178,26 @@ def apply_debug_overrides(config: dict) -> None:
     config["training"]["batch_size"] = 16
     config["sampling"]["n_samples"] = 8
     config["sampling"]["max_eval_windows_per_asset"] = 64
+    losses_cfg = config.get("losses", {})
+    if losses_cfg:
+        losses_cfg.get("realism", {})["context_length"] = min(
+            int(losses_cfg.get("realism", {}).get("context_length", 64)), 32
+        )
+        topology_cfg = losses_cfg.get("topology", {})
+        if topology_cfg:
+            topology_cfg["context_length"] = min(int(topology_cfg.get("context_length", 252)), 32)
+            topology_cfg["n_ref_samples"] = min(int(topology_cfg.get("n_ref_samples", 200)), 20)
+            topology_cfg["eval_n_real"] = min(int(topology_cfg.get("eval_n_real", 30)), 3)
+            topology_cfg["eval_n_synthetic"] = min(
+                int(topology_cfg.get("eval_n_synthetic", 50)), 5
+            )
+            topology_cfg["topo_batch_size"] = min(int(topology_cfg.get("topo_batch_size", 4)), 2)
+            topology_cfg["apply_every_n_steps"] = 1
 
 
 def apply_runtime_overrides(config: dict, args: argparse.Namespace) -> None:
+    if args.loss_profile is not None:
+        apply_loss_profile(config, args.loss_profile)
     overrides = {
         ("data", "prediction_length"): args.prediction_length,
         ("training", "epochs"): args.epochs,
@@ -145,15 +207,44 @@ def apply_runtime_overrides(config: dict, args: argparse.Namespace) -> None:
         ("sampling", "batch_size"): args.eval_batch_size,
         ("sampling", "max_eval_windows_per_asset"): args.max_eval_windows_per_asset,
         ("sampling", "ddim_steps"): args.ddim_steps,
+        ("losses", "realism", "context_length"): args.realism_context_length,
+        ("losses", "topology", "context_length"): args.topology_context_length,
     }
-    for (section, key), value in overrides.items():
+    for keys, value in overrides.items():
         if value is None:
             continue
-        if int(value) <= 0:
-            raise ValueError(f"{section}.{key} must be positive, got {value}")
-        config[section][key] = int(value)
+        min_value = 0 if keys == ("training", "num_workers") else 1
+        if int(value) < min_value:
+            requirement = "non-negative" if min_value == 0 else "positive"
+            raise ValueError(f"{'.'.join(keys)} must be {requirement}, got {value}")
+        target = config
+        for key in keys[:-1]:
+            target = target.setdefault(key, {})
+        target[keys[-1]] = int(value)
     if args.use_ddim is not None:
         config["sampling"]["use_ddim"] = bool(args.use_ddim)
+    if (
+        args.early_stopping is not None
+        or args.early_stopping_patience is not None
+        or args.early_stopping_min_delta is not None
+    ):
+        early_cfg = config["training"].setdefault("early_stopping", {})
+        if args.early_stopping is not None:
+            early_cfg["enabled"] = bool(args.early_stopping)
+        if args.early_stopping_patience is not None:
+            if int(args.early_stopping_patience) < 0:
+                raise ValueError(
+                    "training.early_stopping.patience must be non-negative, "
+                    f"got {args.early_stopping_patience}"
+                )
+            early_cfg["patience"] = int(args.early_stopping_patience)
+        if args.early_stopping_min_delta is not None:
+            if float(args.early_stopping_min_delta) < 0.0:
+                raise ValueError(
+                    "training.early_stopping.min_delta must be non-negative, "
+                    f"got {args.early_stopping_min_delta}"
+                )
+            early_cfg["min_delta"] = float(args.early_stopping_min_delta)
 
 
 def check_runtime_dependencies() -> None:
@@ -232,7 +323,7 @@ def run_model(
         if test_cfg.get("max_eval_windows_per_asset") is not None
         else None,
     )
-    return evaluate_predictions(predictions, output_dir, model_name)
+    return evaluate_predictions(predictions, output_dir, model_name, config=config)
 
 
 def train_model(
@@ -269,11 +360,29 @@ def train_model(
     )
     use_amp = bool(train_cfg.get("use_amp", True)) and device.type == "cuda"
     scaler = GradScaler() if use_amp else None
+    loss_composer = AuxiliaryLossComposer(
+        config=config,
+        train_loader=train_loader,
+        checkpoint_dir=checkpoint_dir,
+        device=device,
+    )
     best_val = float("inf")
+    best_epoch = 0
+    epochs_without_improvement = 0
     history = []
+    early_cfg = train_cfg.get("early_stopping") or {}
+    early_enabled = bool(early_cfg.get("enabled", False))
+    early_patience = int(early_cfg.get("patience", 0))
+    early_min_delta = float(early_cfg.get("min_delta", 0.0))
+    if early_patience < 0:
+        raise ValueError(f"training.early_stopping.patience must be non-negative, got {early_patience}")
+    if early_min_delta < 0.0:
+        raise ValueError(
+            f"training.early_stopping.min_delta must be non-negative, got {early_min_delta}"
+        )
 
     for epoch in range(int(train_cfg["epochs"])):
-        train_loss = run_epoch(
+        train_metrics = run_epoch(
             model=model,
             loader=train_loader,
             optimizer=optimizer,
@@ -282,8 +391,9 @@ def train_model(
             device=device,
             train=True,
             clip_grad_norm=float(train_cfg["clip_grad_norm"]),
+            loss_composer=loss_composer,
         )
-        val_loss = run_epoch(
+        val_metrics = run_epoch(
             model=model,
             loader=val_loader,
             optimizer=None,
@@ -292,8 +402,14 @@ def train_model(
             device=device,
             train=False,
             clip_grad_norm=0.0,
+            loss_composer=loss_composer,
         )
-        history.append({"epoch": epoch + 1, "train_loss": train_loss, "val_loss": val_loss})
+        train_loss = train_metrics["loss"]
+        val_loss = val_metrics["loss"]
+        history_row = {"epoch": epoch + 1, "train_loss": train_loss, "val_loss": val_loss}
+        history_row.update({f"train_{key}": value for key, value in train_metrics.items()})
+        history_row.update({f"val_{key}": value for key, value in val_metrics.items()})
+        history.append(history_row)
         LOGGER.info(
             "Epoch %d/%d - train_loss=%.6f val_loss=%.6f",
             epoch + 1,
@@ -301,9 +417,34 @@ def train_model(
             train_loss,
             val_loss,
         )
-        if bool(train_cfg.get("save_best", True)) and val_loss < best_val:
+        improved = val_loss < best_val - early_min_delta
+        if improved:
             best_val = val_loss
-            save_checkpoint(model, checkpoint_dir / "best.pt", history, config)
+            best_epoch = epoch + 1
+            epochs_without_improvement = 0
+            if bool(train_cfg.get("save_best", True)):
+                save_checkpoint(model, checkpoint_dir / "best.pt", history, config)
+        else:
+            epochs_without_improvement += 1
+
+        if early_enabled and early_patience > 0 and epochs_without_improvement >= early_patience:
+            LOGGER.info(
+                "Early stopping at epoch %d/%d; best_val=%.6f at epoch %d "
+                "with no improvement for %d epoch(s) (min_delta=%.6g)",
+                epoch + 1,
+                int(train_cfg["epochs"]),
+                best_val,
+                best_epoch,
+                epochs_without_improvement,
+                early_min_delta,
+            )
+            break
+
+    if early_enabled and bool(train_cfg.get("save_best", True)) and best_epoch > 0:
+        best_checkpoint = checkpoint_dir / "best.pt"
+        if best_checkpoint.exists():
+            LOGGER.info("Restoring best checkpoint from epoch %d before final evaluation", best_epoch)
+            load_checkpoint(model, best_checkpoint, device)
 
     save_checkpoint(model, checkpoint_dir / "final.pt", history, config)
     pd.DataFrame(history).to_csv(checkpoint_dir / "train_history.csv", index=False)
@@ -318,9 +459,10 @@ def run_epoch(
     device: torch.device,
     train: bool,
     clip_grad_norm: float,
-) -> float:
+    loss_composer: AuxiliaryLossComposer,
+) -> Dict[str, float]:
     model.train(mode=train)
-    total = 0.0
+    totals: Dict[str, float] = {}
     count = 0
     iterator = tqdm(loader, desc="Train" if train else "Val", leave=False)
 
@@ -332,7 +474,13 @@ def run_epoch(
             optimizer.zero_grad(set_to_none=True)
             if scaler is not None:
                 with autocast():
-                    loss = scalar_loss(model(tensor_batch)["loss"])
+                    outputs = model(tensor_batch)
+                    loss, metrics = loss_composer.compose(
+                        outputs,
+                        tensor_batch,
+                        update_normalizer=True,
+                        include_topology=True,
+                    )
                 scaler.scale(loss).backward()
                 if clip_grad_norm > 0:
                     scaler.unscale_(optimizer)
@@ -340,7 +488,13 @@ def run_epoch(
                 scaler.step(optimizer)
                 scaler.update()
             else:
-                loss = scalar_loss(model(tensor_batch)["loss"])
+                outputs = model(tensor_batch)
+                loss, metrics = loss_composer.compose(
+                    outputs,
+                    tensor_batch,
+                    update_normalizer=True,
+                    include_topology=True,
+                )
                 loss.backward()
                 if clip_grad_norm > 0:
                     torch.nn.utils.clip_grad_norm_(model.parameters(), clip_grad_norm)
@@ -349,13 +503,21 @@ def run_epoch(
                 scheduler.step()
         else:
             with torch.no_grad():
-                loss = scalar_loss(model(tensor_batch)["loss"])
+                outputs = model(tensor_batch)
+                loss, metrics = loss_composer.compose(
+                    outputs,
+                    tensor_batch,
+                    update_normalizer=False,
+                    include_topology=False,
+                )
 
-        total += float(loss.detach().cpu())
+        for key, value in metrics.items():
+            totals[key] = totals.get(key, 0.0) + float(value.detach().cpu())
         count += 1
-        iterator.set_postfix(loss=total / count)
+        iterator.set_postfix(loss=totals.get("loss", 0.0) / count)
 
-    return total / max(1, count)
+    denom = max(1, count)
+    return {key: value / denom for key, value in totals.items()}
 
 
 def save_checkpoint(

@@ -363,6 +363,8 @@ class GaussianDiffusion(nn.Module):
         Returns:
             Dict with 'loss', and 'ddpm_loss'/'topo_loss' when topo is active.
         """
+        if x_0.dim() == 2:
+            x_0 = x_0.unsqueeze(-1)
         batch_size = x_0.shape[0]
         device = x_0.device
 
@@ -476,9 +478,15 @@ class FinancialDiffusion(nn.Module):
             prediction_type=prediction_type,
         )
 
-    def forward(self, x: torch.Tensor) -> Dict[str, torch.Tensor]:
+    def forward(
+        self,
+        x: torch.Tensor,
+        trend: Optional[torch.Tensor] = None,
+        volatility: Optional[torch.Tensor] = None,
+        regime: Optional[torch.Tensor] = None,
+    ) -> Dict[str, torch.Tensor]:
         """
-        Training forward pass (unconditional).
+        Training forward pass.
 
         Args:
             x: Clean returns of shape (B, T) or (B, T, 1)
@@ -486,7 +494,10 @@ class FinancialDiffusion(nn.Module):
         Returns:
             Dict with 'loss' (and 'ddpm_loss'/'topo_loss' when topo is active)
         """
-        return self.diffusion.training_loss(x, cond=None, topo_loss_fn=self.topo_loss_fn)
+        cond = None
+        if trend is not None or volatility is not None or regime is not None:
+            cond = self.condition_encoder(trend=trend, volatility=volatility, regime=regime)
+        return self.diffusion.training_loss(x, cond=cond, topo_loss_fn=self.topo_loss_fn)
 
     @torch.no_grad()
     def generate(

@@ -97,8 +97,8 @@ def temporal_metrics(
 
     metrics["acf_mae"] = np.mean(np.abs(acf_syn - acf_real))
     metrics["acf_squared_mae"] = np.mean(np.abs(acf_sq_syn - acf_sq_real))
-    metrics["vol_cluster_real"] = float(acf_sq_real[1]) if len(acf_sq_real) > 1 else 0
-    metrics["vol_cluster_syn"] = float(acf_sq_syn[1]) if len(acf_sq_syn) > 1 else 0
+    metrics["vol_cluster_real"] = float(acf_sq_real[0]) if len(acf_sq_real) > 0 else 0
+    metrics["vol_cluster_syn"] = float(acf_sq_syn[0]) if len(acf_sq_syn) > 0 else 0
 
     return metrics
 

@@ -32,6 +32,7 @@ from src.evaluation import (  # noqa: E402
 from src.evaluation.stylized_facts import compare_distributions  # noqa: E402
 
 from .data import OneStepReturnDataset, TRADING_DAYS_PER_YEAR
+from .losses import topology_diagnostics
 
 
 def to_python(obj):
@@ -220,6 +221,7 @@ def evaluate_predictions(
     predictions: pd.DataFrame,
     output_dir: Path,
     model_name: str,
+    config: Optional[Dict] = None,
 ) -> Dict:
     output_dir.mkdir(parents=True, exist_ok=True)
     predictions.to_csv(output_dir / "predictions.csv", index=False)
@@ -231,6 +233,9 @@ def evaluate_predictions(
         "comparison": compare_distributions(real_paths, synthetic_paths),
     }
     metrics = compute_all_metrics(real_paths, synthetic_paths)
+    topology = topology_diagnostics(real_paths, synthetic_paths, config)
+    if topology:
+        metrics["topology"] = topology
     forecasts = forecast_metrics(predictions)
 
     results = {

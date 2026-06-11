@@ -44,6 +44,10 @@ training:
   seed: 42
   num_workers: 0
   save_best: true
+  early_stopping:
+    enabled: true
+    patience: 4
+    min_delta: 0.0
 
 sampling:
   n_samples: 25
@@ -51,6 +55,34 @@ sampling:
   use_ddim: true
   ddim_steps: 50
   max_eval_windows_per_asset: 128
+
+losses:
+  normalizer:
+    decay: 0.98
+    eps: 0.00000001
+  realism:
+    enabled: false
+    context_length: 64
+    lags: [1, 5, 10]
+    weights:
+      squared_acf: 0.10
+      absolute_acf: 0.05
+      kurtosis: 0.05
+      leverage: 0.05
+  topology:
+    enabled: false
+    evaluate: false
+    weight: 0.02
+    context_length: 252
+    window_dim: 3
+    n_landscapes: 3
+    n_grid_points: 50
+    apply_every_n_steps: 10
+    topo_batch_size: 4
+    n_ref_samples: 200
+    eval_n_real: 30
+    eval_n_synthetic: 50
+    apply_on_validation: false
 
 paths:
   output_dir: "FinDiffusion_CSDI_Pipeline/outputs"

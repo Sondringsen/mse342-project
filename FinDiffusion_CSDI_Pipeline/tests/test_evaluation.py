@@ -4,12 +4,16 @@ from pathlib import Path
 import sys
 import unittest
 
+import numpy as np
 import pandas as pd
 
 PIPELINE_ROOT = Path(__file__).resolve().parents[1]
+FINDIFFUSION_ROOT = PIPELINE_ROOT.parent / "FinDiffusion"
 sys.path.insert(0, str(PIPELINE_ROOT))
+sys.path.insert(0, str(FINDIFFUSION_ROOT))
 
 from pipeline.evaluation import forecast_metrics, paths_from_predictions, select_eval_indices
+from src.evaluation.metrics import temporal_metrics
 
 
 class FakeDataset:
@@ -78,6 +82,21 @@ class EvaluationTest(unittest.TestCase):
 
         self.assertEqual(target_indices, [16, 19])
         self.assertGreaterEqual(target_indices[1] - target_indices[0], FakeDataset().prediction_length)
+
+    def test_temporal_vol_cluster_reports_lag_one_squared_acf(self) -> None:
+        real = np.asarray([[1.0, -2.0, 1.5, -0.5, 2.5, -1.0]], dtype=np.float32)
+        synthetic = np.asarray([[0.5, -1.0, 0.25, 1.5, -0.75, 2.0]], dtype=np.float32)
+
+        metrics = temporal_metrics(real, synthetic, max_lag=3)
+
+        self.assertAlmostEqual(metrics["vol_cluster_real"], acf_at_lag(real[0] ** 2, 1))
+        self.assertAlmostEqual(metrics["vol_cluster_syn"], acf_at_lag(synthetic[0] ** 2, 1))
+        self.assertNotAlmostEqual(metrics["vol_cluster_real"], acf_at_lag(real[0] ** 2, 2))
+
+
+def acf_at_lag(values: np.ndarray, lag: int) -> float:
+    centered = values - values.mean()
+    return float(np.mean(centered[:-lag] * centered[lag:]) / np.var(centered))
 
 
 if __name__ == "__main__":

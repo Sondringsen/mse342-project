@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+PROJECT_ROOT="${PROJECT_ROOT:-$(cd "${SCRIPT_DIR}/../.." && pwd)}"
 cd "${PROJECT_ROOT}"
 
 PARTITION="${PARTITION:-gpu-turing}"
@@ -11,12 +11,22 @@ MODELS="${MODELS:-findiffusion csdi}"
 GPUS_PER_MODEL="${GPUS_PER_MODEL:-1}"
 CPUS_PER_MODEL="${CPUS_PER_MODEL:-8}"
 LOG_DIR="${PROJECT_ROOT}/FinDiffusion_CSDI_Pipeline/outputs/${RUN_NAME}/logs"
+PARENT_VENV_PYTHON="${PROJECT_ROOT}/../venv/bin/python"
+PIPELINE_VENV_PYTHON="${PROJECT_ROOT}/FinDiffusion_CSDI_Pipeline/.venv/bin/python"
+if [ -z "${PYTHON:-}" ]; then
+  if [ -x "${PARENT_VENV_PYTHON}" ]; then
+    PYTHON="${PARENT_VENV_PYTHON}"
+  else
+    PYTHON="${PIPELINE_VENV_PYTHON}"
+  fi
+fi
 mkdir -p "${LOG_DIR}"
 
 echo "Run name: ${RUN_NAME}"
 echo "Models: ${MODELS}"
 echo "GPUs per model: ${GPUS_PER_MODEL}"
 echo "CPUs per model: ${CPUS_PER_MODEL}"
+echo "Python: ${PYTHON}"
 echo "Logs: ${LOG_DIR}"
 
 pids=()
@@ -28,6 +38,7 @@ for model in ${MODELS}; do
     srun --partition="${PARTITION}" \
       --gres="gpu:${GPUS_PER_MODEL}" \
       --cpus-per-task="${CPUS_PER_MODEL}" \
+      --export=ALL,PYTHON="${PYTHON}" \
       "${PROJECT_ROOT}/FinDiffusion_CSDI_Pipeline/scripts/run_one_gpu.sh" "$@"
   ) > "${LOG_DIR}/${model}.log" 2>&1 &
   pids+=("$!")
@@ -45,7 +56,7 @@ if [ "${failed}" -ne 0 ]; then
   exit "${failed}"
 fi
 
-"${PROJECT_ROOT}/FinDiffusion_CSDI_Pipeline/.venv/bin/python" \
+"${PYTHON}" \
   FinDiffusion_CSDI_Pipeline/pipeline/summarize_results.py \
   --run-dir "${PROJECT_ROOT}/FinDiffusion_CSDI_Pipeline/outputs/${RUN_NAME}" || failed=1
 
